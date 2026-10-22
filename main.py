@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("sh_shop")
+log = logging.getLogger("boris_britva_shop")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -31,7 +31,7 @@ if not BOT_TOKEN:
 BASE_URL = (os.environ.get("WEBHOOK_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
 
 # Telegram-аккаунт менеджера (без @) — на него ведёт кнопка «Написать менеджеру».
-SHOP_CONTACT = (os.environ.get("SHOP_CONTACT") or "SHvape_manager").lstrip("@").strip()
+SHOP_CONTACT = (os.environ.get("SHOP_CONTACT") or "britvaboris1").lstrip("@").strip()
 
 # Пароль для входа в админ-панель (/admin). Задаётся в переменных окружения.
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
@@ -54,11 +54,25 @@ UPLOAD_DIR = os.path.join(APP_DIR, "uploads")   # только для разов
 
 # Доставка и самовывоз
 try:
-    DELIVERY_FEE = int(os.environ.get("DELIVERY_FEE", "200"))
+    DELIVERY_FEE = int(os.environ.get("DELIVERY_FEE", "59"))
 except ValueError:
-    DELIVERY_FEE = 200
+    DELIVERY_FEE = 59
+# Бесплатная доставка от этой суммы товаров (после промокода, до списания баллов). 0 — отключить.
+try:
+    FREE_DELIVERY_FROM = int(os.environ.get("FREE_DELIVERY_FROM", "990"))
+except ValueError:
+    FREE_DELIVERY_FROM = 990
+
+
+def delivery_fee_for(goods_total):
+    """Стоимость доставки: 0 ₽ от FREE_DELIVERY_FROM, иначе DELIVERY_FEE."""
+    if FREE_DELIVERY_FROM > 0 and goods_total >= FREE_DELIVERY_FROM:
+        return 0
+    return DELIVERY_FEE
+
+
 PICKUP_POINTS = [
-    p.strip() for p in (os.environ.get("PICKUP_POINTS") or "Пролетарская,Девяткино,Мурино").split(",") if p.strip()
+    p.strip() for p in (os.environ.get("PICKUP_POINTS") or "Казань (личная доставка)").split(",") if p.strip()
 ]
 
 # Программа лояльности: 1 балл = 1 рубль
@@ -635,6 +649,31 @@ def save_promos(items):
 seed_from_files_once()
 
 
+def replace_catalog_once(flag="catalog_v2"):
+    """Разовая замена каталога: все прежние товары удаляются, вместо них — товары из products.json.
+    Заказы, баллы и промокоды не затрагиваются. Выполняется один раз (флаг в таблице meta)."""
+    try:
+        with DocSession() as db:
+            if db.get(Meta, flag):
+                return
+        with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
+            items = json.load(f)
+        if not items:
+            return
+        old_urls = [u for p in _load_docs(Product) for u in (p.get("images") or []) + [p.get("image")]]
+        _save_docs(Product, items)                      # лишние (старые) удаляются, новые добавляются
+        purge_unused_images(old_urls)                   # фото старых товаров тоже чистим
+        with DocSession() as db:
+            db.add(Meta(key=flag, value=datetime.now(timezone.utc).isoformat()))
+            db.commit()
+        log.info("Каталог заменён: %d товаров", len(items))
+    except Exception:
+        log.exception("Не удалось заменить каталог")
+
+
+replace_catalog_once()
+
+
 def fmt_price(n):
     n = float(n)
     if n.is_integer():
@@ -679,11 +718,11 @@ def qty_by_product(items):
     return totals
 
 
-def reserve_stock(items):
-    """Проверяет остатки и списывает их. Возвращает текст ошибки либо None. Вызывать под DATA_LOCK."""
+def check_stock(items, products_list=None, by_id=None):
+    """Только проверяет, хватает ли остатков (ничего не списывает). Возвращает текст ошибки либо None."""
     totals = qty_by_product(items)
-    products_list = load_products()
-    by_id = {p.get("id"): p for p in products_list}
+    if by_id is None:
+        by_id = {p.get("id"): p for p in (products_list or load_products())}
     for pid, qty in totals.items():
         p = by_id.get(pid)
         if not p or p.get("stock") is None:
@@ -693,6 +732,17 @@ def reserve_stock(items):
             return f"«{p.get('name')}» — нет в наличии"
         if qty > have:
             return f"«{p.get('name')}» — доступно только {have} шт."
+    return None
+
+
+def reserve_stock(items):
+    """Проверяет остатки и списывает их. Возвращает текст ошибки либо None. Вызывать под DATA_LOCK."""
+    totals = qty_by_product(items)
+    products_list = load_products()
+    by_id = {p.get("id"): p for p in products_list}
+    err = check_stock(items, by_id=by_id)
+    if err:
+        return err
     changed = False
     for pid, qty in totals.items():
         p = by_id.get(pid)
@@ -776,7 +826,7 @@ def has_customer_used_promo(promo_code, customer_chat_id):
     return any(
         o.get("promo_code") == promo_code
         and o.get("customer_chat_id") == customer_chat_id
-        and o.get("status") != "cancelled"
+        and o.get("status") not in CANCEL_STATUSES
         for o in orders
     )
 
@@ -790,6 +840,153 @@ def compute_promo_discount(promo, subtotal):
     return int(round(discount))
 
 
+# --- Статусы заказа и их связь со складом/баллами ------------------------
+# new / contacted  — «в обработке»: остатки НЕ списаны, кешбэк не начислен (баллы к оплате зарезервированы)
+# accepted / done  — «принят»: остатки списаны, кешбэк начислен
+# rejected / cancelled — «отклонён» / «отменён»: остатки не списаны, баллы возвращены
+PENDING_STATUSES = {"new", "contacted"}
+ACCEPTED_STATUSES = {"accepted", "done"}
+CANCEL_STATUSES = {"rejected", "cancelled"}
+ALL_STATUSES = PENDING_STATUSES | ACCEPTED_STATUSES | CANCEL_STATUSES
+
+
+def _cb_credited(o):
+    """Начислен ли кешбэк. У старых заказов флага нет: там кешбэк начислялся сразу вместе со списанием баллов."""
+    return bool(o.get("cashback_credited", o.get("loyalty_applied")))
+
+
+def apply_order_status(o, target):
+    """Переводит заказ в статус target и приводит склад и баллы в соответствие.
+    Возвращает текст ошибки (заказ при этом не меняется) либо None. Вызывать под DATA_LOCK;
+    после успеха вызывающий сохраняет список заказов."""
+    tg = o.get("customer_chat_id")
+    items = o.get("items") or []
+    spend = int(o.get("points_spent") or 0)
+    cb = int(o.get("cashback") or 0)
+    total = o.get("total") or 0
+
+    have_cb = _cb_credited(o)
+    o["cashback_credited"] = have_cb                       # зафиксировать для старых заказов
+    have_spend = bool(o.get("loyalty_applied"))
+    have_stock = bool(o.get("stock_deducted"))
+
+    want_spend = target not in CANCEL_STATUSES
+    want_hold = target in ACCEPTED_STATUSES
+
+    # 1) сначала то, что может не получиться
+    spend_acquired = False
+    if want_spend and not have_spend and tg:
+        try:
+            loyalty_apply(tg, spend, 0, 0)
+        except ValueError:
+            return "У клиента не хватает баллов, чтобы возобновить заказ"
+        spend_acquired = True
+        o["loyalty_applied"] = True
+    if want_hold and not have_stock:
+        err = reserve_stock(items)
+        if err:
+            if spend_acquired:
+                loyalty_revert(tg, spend, 0, 0)
+                o["loyalty_applied"] = False
+            return err
+        o["stock_deducted"] = True
+
+    # 2) затем освобождение
+    if not want_hold and have_stock:
+        shift_stock(items, +1)
+        o["stock_deducted"] = False
+    if tg:
+        if want_hold and not have_cb:
+            loyalty_apply(tg, 0, cb, total)
+            o["cashback_credited"] = True
+        elif not want_hold and have_cb:
+            loyalty_revert(tg, 0, cb, total)
+            o["cashback_credited"] = False
+        if not want_spend and o.get("loyalty_applied"):
+            loyalty_revert(tg, spend, 0, 0)
+            o["loyalty_applied"] = False
+    o["status"] = target
+    return None
+
+
+ORDER_STATUS_TEXT = {
+    "new": "в обработке", "contacted": "в обработке", "accepted": "принят", "done": "выполнен",
+    "rejected": "отклонён", "cancelled": "отменён",
+}
+
+
+def order_keyboard(order_id):
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        types.InlineKeyboardButton("✅ Принять", callback_data=f"ord:ok:{order_id}"),
+        types.InlineKeyboardButton("❌ Отклонить", callback_data=f"ord:no:{order_id}"),
+    )
+    return kb
+
+
+@bot.callback_query_handler(func=lambda c: bool(c.data) and c.data.startswith("ord:"))
+def on_order_moderation(call: types.CallbackQuery):
+    if not call.from_user or call.from_user.id not in ADMIN_CHAT_IDS:
+        bot.answer_callback_query(call.id, "Нет доступа", show_alert=True)
+        return
+    try:
+        _, action, raw_id = call.data.split(":")
+        oid = int(raw_id)
+        if action not in ("ok", "no"):
+            raise ValueError
+    except ValueError:
+        bot.answer_callback_query(call.id, "Некорректные данные кнопки", show_alert=True)
+        return
+
+    def finish(note):
+        try:
+            base = call.message.text or ""
+            bot.edit_message_text(f"{base}\n\n{note}", call.message.chat.id, call.message.message_id)
+        except Exception as e:
+            log.warning("Не удалось обновить сообщение заказа: %s", e)
+
+    with DATA_LOCK:
+        orders = load_orders()
+        order = next((o for o in orders if o.get("id") == oid), None)
+        if order is None:
+            bot.answer_callback_query(call.id, "Заказ не найден", show_alert=True)
+            finish("ℹ️ Заказ не найден")
+            return
+        if order.get("status") not in PENDING_STATUSES:
+            bot.answer_callback_query(call.id, "Этот заказ уже обработан")
+            finish(f"ℹ️ Уже обработан: {ORDER_STATUS_TEXT.get(order.get('status'), order.get('status'))}")
+            return
+        try:
+            err = apply_order_status(order, "accepted" if action == "ok" else "rejected")
+            if not err:
+                save_orders(orders)
+        except Exception:
+            log.exception("Ошибка обработки заказа %s", oid)
+            bot.answer_callback_query(call.id, "Ошибка базы данных, попробуйте ещё раз", show_alert=True)
+            return
+        if err:
+            bot.answer_callback_query(call.id, err, show_alert=True)   # напр. не хватает остатка — кнопки остаются
+            return
+        accepted = action == "ok"
+
+    bot.answer_callback_query(call.id, "Готово")
+    finish("✅ Заказ принят" if accepted else "❌ Заказ отклонён")
+    chat_id = order.get("customer_chat_id")
+    if chat_id:
+        try:
+            if accepted:
+                cb = int(order.get("cashback") or 0)
+                bot.send_message(chat_id, f"✅ Ваш заказ BB-{oid} принят!\n\nМы свяжемся с вами в этом чате."
+                                 + (f"\nНачислен кешбэк: {cb} б." if cb else ""))
+            else:
+                sp = int(order.get("points_spent") or 0)
+                bot.send_message(chat_id, f"❌ К сожалению, заказ BB-{oid} отклонён."
+                                 + (f"\nСписанные баллы ({sp} б.) возвращены." if sp else "")
+                                 + "\nЕсли остались вопросы — напишите менеджеру.")
+        except Exception as e:
+            log.warning("Не удалось уведомить покупателя о статусе заказа: %s", e)
+
+
 # --- Telegram handlers -------------------------------------------------
 
 @bot.message_handler(commands=["start"])
@@ -797,14 +994,14 @@ def cmd_start(message: types.Message):
     if not BASE_URL:
         bot.send_message(
             message.chat.id,
-            "SH SHOP: мини-апп ещё не сконфигурирован (не задан WEBHOOK_URL)."
+            "Борис Бритва Шоп: мини-апп ещё не сконфигурирован (не задан WEBHOOK_URL)."
         )
         return
 
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
         types.InlineKeyboardButton(
-            text="🚀 Открыть SH SHOP",
+            text="🚀 Открыть Борис Бритва Шоп",
             web_app=types.WebAppInfo(url=BASE_URL + "/")
         )
     )
@@ -828,11 +1025,11 @@ def cmd_start(message: types.Message):
 
     bot.send_message(
         message.chat.id,
-        "🚀 *SH SHOP — всё для пара*\n\n"
-        "*Лучшие цены. Всё оригинал.*\n"
-        "Одноразки, жидкости, поды, расходники и шайбы — выбирайте в каталоге.\n"
-        "📍 Самовывоз: Пролетарская, Девяткино, Мурино\n"
-        "🚚 Доставка — 200 ₽\n\n"
+        "🪒 *Борис Бритва Шоп*\n\n"
+        "*Казань. Всё оригинал.*\n"
+        "Выбирайте товары в каталоге.\n"
+        f"🚚 Доставка — {DELIVERY_FEE} ₽" + (f", при покупке от {FREE_DELIVERY_FROM} ₽ — бесплатно" if FREE_DELIVERY_FROM > 0 else "") + "\n"
+        "📦 Доставка по России — от Пятёрочки: получение на кассах или в постаматах\n\n"
         "Нажмите кнопку ниже, чтобы открыть каталог и оформить заказ.",
         reply_markup=keyboard,
         parse_mode="Markdown",
@@ -854,7 +1051,8 @@ def index():
 
 @app.route("/api/config", methods=["GET"])
 def public_config():
-    return jsonify({"contact": SHOP_CONTACT, "delivery_fee": DELIVERY_FEE, "pickup_points": PICKUP_POINTS,
+    return jsonify({"contact": SHOP_CONTACT, "delivery_fee": DELIVERY_FEE,
+                    "free_delivery_from": FREE_DELIVERY_FROM, "pickup_points": PICKUP_POINTS,
                     "cashback_percent": CASHBACK_PERCENT, "max_points_percent": MAX_POINTS_PERCENT,
                     "point_value": POINT_VALUE})
 
@@ -951,7 +1149,8 @@ def delivery_text(d):
     if not isinstance(d, dict) or not d:
         return ""
     if d.get("mode") == "delivery":
-        line = f"🚚 Доставка ({fmt_price(d.get('fee') or 0)}): {d.get('address') or '—'}"
+        fee_txt = fmt_price(d["fee"]) if d.get("fee") else "бесплатно"
+        line = f"🚚 Доставка ({fee_txt}): {d.get('address') or '—'}"
     else:
         line = f"📍 Самовывоз: {d.get('point') or '—'}"
     if d.get("asap", True):
@@ -1012,6 +1211,8 @@ def create_order():
 
     # --- баллы: проверяем до любых списаний ---
     goods_total = subtotal - discount                       # сумма корзины с учётом промокода
+    if delivery["mode"] == "delivery":
+        delivery["fee"] = delivery_fee_for(goods_total)     # бесплатно от FREE_DELIVERY_FROM
     points_to_spend = parse_points(data.get("points_to_spend"))
     if points_to_spend:
         if not customer_chat_id:
@@ -1032,19 +1233,19 @@ def create_order():
     total = round(goods_total - points_discount + delivery["fee"], 2)   # к оплате рублями
     cashback = cashback_points(total) if customer_chat_id else 0       # баллы за оплаченные рубли
 
-    stock_err = reserve_stock(items)       # списываем остатки только после всех проверок
+    # остатки только проверяем: списание — после того, как админ нажмёт «Принять»
+    stock_err = check_stock(items)
     if stock_err:
         abort(400, description=stock_err)
 
     new_balance = None
     if customer_chat_id:
         try:
-            new_balance = loyalty_apply(customer_chat_id, points_to_spend, cashback, total)
+            # баллы к оплате резервируем сразу, кешбэк начислится при принятии заказа
+            new_balance = loyalty_apply(customer_chat_id, points_to_spend, 0, 0)
         except ValueError:
-            shift_stock(items, +1)           # вернуть только что списанные остатки
             abort(400, description="Недостаточно баллов на балансе")
         except Exception:
-            shift_stock(items, +1)
             log.exception("Не удалось обновить баланс баллов")
             return jsonify({"error": "Не удалось списать баллы, попробуйте ещё раз"}), 500
 
@@ -1065,7 +1266,8 @@ def create_order():
         "customer_chat_id": customer_chat_id,
         "customer_username": customer_username,
         "status": "new",
-        "stock_deducted": True,
+        "stock_deducted": False,
+        "cashback_credited": False,
         "goods_total": goods_total,
         "points_spent": points_to_spend,
         "points_discount": points_discount,
@@ -1087,11 +1289,27 @@ def create_order():
         f"· {i.get('name','—')} ({i.get('size') or '—'}) × {i.get('qty', 1)}"
         for i in items
     )
+    # для менеджера — с категорией и серией, т.к. названия вкусов повторяются в разных линейках
+    _by_id = {p.get("id"): p for p in load_products()}
+    def _where(i):
+        try:
+            p = _by_id.get(int(i.get("id")))
+        except (TypeError, ValueError):
+            p = None
+        return " → ".join(x for x in (p.get("category"), p.get("subcategory")) if x) if p else ""
+    admin_items_lines = "\n".join(
+        f"· {i.get('name','—')} ({i.get('size') or '—'}) × {i.get('qty', 1)}"
+        + (f"\n   📁 {_where(i)}" if _where(i) else "")
+        for i in items
+    )
 
     delivery_block = delivery_text(delivery)
-    fee_line = f"Доставка: {fmt_price(delivery['fee'])}\n" if delivery["fee"] else ""
+    if delivery["mode"] == "delivery":
+        fee_line = f"Доставка: {fmt_price(delivery['fee']) if delivery['fee'] else 'бесплатно'}\n"
+    else:
+        fee_line = ""
     loyalty_line = (f"Оплачено баллами: {points_to_spend} б. ({fmt_price(points_discount)}) | "
-                    f"Начислено кешбэка: {cashback} б. ({fmt_price(cashback * POINT_VALUE)})\n")
+                    f"Кешбэк после подтверждения: {cashback} б. ({fmt_price(cashback * POINT_VALUE)})\n")
 
     discount_line = ""
     if discount > 0:
@@ -1105,36 +1323,36 @@ def create_order():
             bot.send_message(
                 customer_chat_id,
                 "✅ Заказ оформлен!\n\n"
-                f"Номер заказа: SH-{new_id}\n"
+                f"Номер заказа: BB-{new_id}\n"
                 f"{items_lines}\n\n"
                 f"{delivery_block}\n\n"
                 f"{discount_line}"
                 f"{fee_line}"
                 f"{loyalty_line}"
                 f"Итого: {fmt_price(total)}\n\n"
-                "Мы свяжемся с вами в этом чате, чтобы подтвердить заказ и время."
+                "Заказ в обработке. Как только менеджер его примет, мы сообщим вам в этом чате."
             )
         except Exception as e:
             log.warning("Не удалось отправить подтверждение покупателю: %s", e)
 
     admin_text = (
-        f"🛒 Новый заказ SH-{new_id}\n\n"
+        f"🛒 Новый заказ BB-{new_id}\n\n"
         f"Клиент: {name}\n"
         f"Телефон: {phone}\n"
         + (f"Telegram: @{customer_username}\n" if customer_username else "")
-        + f"\n{items_lines}\n\n"
+        + f"\n{admin_items_lines}\n\n"
         f"{delivery_block}\n\n"
         f"{discount_line}"
         f"{fee_line}"
         f"{loyalty_line}"
         f"Итого: {fmt_price(total)}\n"
         + (f"\nКомментарий: {comment}\n" if comment else "")
-        + "\nОткройте панель администратора (вкладка «Заказы»), чтобы "
-          "написать клиенту и подтвердить время."
+        + "\nТовар спишется со склада после нажатия «Принять»."
     )
+    kb = order_keyboard(new_id)
     for admin_id in ADMIN_CHAT_IDS:
         try:
-            bot.send_message(admin_id, admin_text)
+            bot.send_message(admin_id, admin_text, reply_markup=kb)
         except Exception as e:
             log.warning("Не удалось уведомить администратора %s: %s", admin_id, e)
 
@@ -1205,20 +1423,16 @@ def customer_cancel_order(oid):
     if order.get("customer_chat_id") != tg_id:
         abort(403, description="Это не ваш заказ")
     if order.get("status") != "new":
-        abort(400, description="Заказ уже в обработке — отмена недоступна")
+        abort(400, description="Заказ уже обработан — отмена недоступна")
 
-    order["status"] = "cancelled"
-    if order.get("stock_deducted"):
-        shift_stock(order.get("items") or [], +1)   # отменённый заказ возвращает товар на склад
-        order["stock_deducted"] = False
-    if order.get("loyalty_applied"):
-        loyalty_revert(*order_loyalty_args(order))   # вернуть баллы, забрать кешбэк
-        order["loyalty_applied"] = False
+    err = apply_order_status(order, "cancelled")   # вернёт баллы, товар на склад (если был списан)
+    if err:
+        abort(400, description=err)
     save_orders(orders)
 
     for admin_id in ADMIN_CHAT_IDS:
         try:
-            bot.send_message(admin_id, f"❌ Клиент отменил заказ SH-{oid}")
+            bot.send_message(admin_id, f"❌ Клиент отменил заказ BB-{oid}")
         except Exception as e:
             log.warning("Не удалось уведомить администратора %s: %s", admin_id, e)
 
@@ -1563,31 +1777,14 @@ def admin_update_order_status(oid):
     require_admin()
     data = request.get_json(force=True, silent=True) or {}
     status = (data.get("status") or "").strip()
-    if status not in {"new", "contacted", "done", "cancelled"}:
+    if status not in ALL_STATUSES:
         abort(400, description="Некорректный статус")
     orders = load_orders()
     for o in orders:
         if o.get("id") == oid:
-            prev = o.get("status")
-            o["status"] = status
-            # остатки следуют за статусом: отмена возвращает товар, «оживление» отменённого заказа списывает снова
-            # баллы следуют за статусом так же, как остатки
-            if status == "cancelled" and prev != "cancelled" and o.get("loyalty_applied"):
-                loyalty_revert(*order_loyalty_args(o))
-                o["loyalty_applied"] = False
-            elif (prev == "cancelled" and status != "cancelled" and o.get("customer_chat_id")
-                  and o.get("loyalty_applied") is False):
-                try:
-                    loyalty_apply(*order_loyalty_args(o))
-                except ValueError:
-                    abort(400, description="У клиента не хватает баллов, чтобы возобновить заказ")
-                o["loyalty_applied"] = True
-            if status == "cancelled" and prev != "cancelled" and o.get("stock_deducted"):
-                shift_stock(o.get("items") or [], +1)
-                o["stock_deducted"] = False
-            elif prev == "cancelled" and status != "cancelled" and o.get("stock_deducted") is False:
-                shift_stock(o.get("items") or [], -1)
-                o["stock_deducted"] = True
+            err = apply_order_status(o, status)   # склад и баллы следуют за статусом
+            if err:
+                abort(400, description=err)
             save_orders(orders)
             return jsonify(o)
     abort(404, description="Заказ не найден")
@@ -1614,7 +1811,7 @@ def admin_message_customer(oid):
     try:
         bot.send_message(
             chat_id,
-            f"💬 Сообщение от SH SHOP по заказу SH-{oid}:\n\n{text}"
+            f"💬 Сообщение от Борис Бритва Шоп по заказу BB-{oid}:\n\n{text}"
         )
     except Exception as e:
         abort(400, description=f"Не удалось отправить сообщение: {e}")
@@ -1658,7 +1855,7 @@ def admin_message_question(qid):
     try:
         bot.send_message(
             chat_id,
-            f"💬 Ответ от SH SHOP по товару «{q.get('product_name','')}»:\n\n{text}"
+            f"💬 Ответ от Борис Бритва Шоп по товару «{q.get('product_name','')}»:\n\n{text}"
         )
     except Exception as e:
         abort(400, description=f"Не удалось отправить ответ: {e}")
