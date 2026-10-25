@@ -202,6 +202,19 @@ class LoyaltyUser(Base):
                             default=lambda: datetime.now(timezone.utc))
 
 
+class LoyaltyLog(Base):
+    """Журнал движения баллов: заказы (авто) и ручные корректировки из админки."""
+    __tablename__ = "loyalty_log"
+    id            = Column(Integer, primary_key=True)
+    telegram_id   = Column(BigInteger, nullable=False, index=True)
+    delta         = Column(Integer, nullable=False)           # + начислено / − списано
+    balance_after = Column(Integer, nullable=False)
+    kind          = Column(String(16), nullable=False, default="order")   # order | admin
+    note          = Column(String(255))
+    created_at    = Column(DateTime(timezone=True), nullable=False,
+                           default=lambda: datetime.now(timezone.utc))
+
+
 # Отдельная фабрика сессий для данных магазина (не мешает сессиям отзывов).
 DocSession = sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -239,7 +252,13 @@ def loyalty_get(tg_id):
             raise
 
 
-def loyalty_apply(tg_id, spend, earn, paid):
+def _log_loyalty(db, tg_id, delta, balance_after, kind, note):
+    if delta:
+        db.add(LoyaltyLog(telegram_id=tg_id, delta=int(delta), balance_after=int(balance_after),
+                          kind=kind, note=(note or "")[:255]))
+
+
+def loyalty_apply(tg_id, spend, earn, paid, note=""):
     """Списывает spend баллов, начисляет earn баллов, добавляет paid к total_spent — одной транзакцией.
     Бросает ValueError, если на балансе не хватает баллов. Возвращает новый баланс."""
     with DocSession() as db:
@@ -247,8 +266,11 @@ def loyalty_apply(tg_id, spend, earn, paid):
             user = _get_or_create_loyalty(db, tg_id, lock=True)
             if spend > user.points_balance:
                 raise ValueError("not enough points")
-            user.points_balance = user.points_balance - spend + earn
+            after_spend = user.points_balance - spend
+            user.points_balance = after_spend + earn
             user.total_spent = float(user.total_spent or 0) + paid
+            _log_loyalty(db, tg_id, -spend, after_spend, "order", note)
+            _log_loyalty(db, tg_id, earn, user.points_balance, "order", note)
             db.commit()
             return user.points_balance
         except Exception:
@@ -256,15 +278,44 @@ def loyalty_apply(tg_id, spend, earn, paid):
             raise
 
 
-def loyalty_revert(tg_id, spend, earn, paid):
+def loyalty_revert(tg_id, spend, earn, paid, note=""):
     """Обратная операция при отмене заказа: возвращает списанные баллы, забирает начисленный кешбэк."""
     with DocSession() as db:
         try:
             user = _get_or_create_loyalty(db, tg_id, lock=True)
-            user.points_balance = max(0, user.points_balance + spend - earn)
+            old = user.points_balance
+            user.points_balance = max(0, old + spend - earn)
             user.total_spent = max(0.0, float(user.total_spent or 0) - paid)
+            _log_loyalty(db, tg_id, user.points_balance - old, user.points_balance, "order", note)
             db.commit()
             return user.points_balance
+        except Exception:
+            db.rollback()
+            raise
+
+
+MAX_ADMIN_POINTS = 1_000_000
+
+
+def loyalty_admin_adjust(tg_id, action, amount, note):
+    """Ручная корректировка баланса из админки. action: add | subtract | set | reset.
+    Баланс не уходит ниже нуля. Возвращает (старый_баланс, новый_баланс)."""
+    with DocSession() as db:
+        try:
+            user = _get_or_create_loyalty(db, tg_id, lock=True)
+            old = user.points_balance
+            if action == "add":
+                new = old + amount
+            elif action == "subtract":
+                new = max(0, old - amount)
+            elif action == "set":
+                new = amount
+            else:  # reset
+                new = 0
+            user.points_balance = new
+            _log_loyalty(db, tg_id, new - old, new, "admin", note)
+            db.commit()
+            return old, new
         except Exception:
             db.rollback()
             raise
@@ -877,7 +928,7 @@ def apply_order_status(o, target):
     spend_acquired = False
     if want_spend and not have_spend and tg:
         try:
-            loyalty_apply(tg, spend, 0, 0)
+            loyalty_apply(tg, spend, 0, 0, f"Оплата баллами, заказ BB-{o.get('id')}")
         except ValueError:
             return "У клиента не хватает баллов, чтобы возобновить заказ"
         spend_acquired = True
@@ -886,7 +937,7 @@ def apply_order_status(o, target):
         err = reserve_stock(items)
         if err:
             if spend_acquired:
-                loyalty_revert(tg, spend, 0, 0)
+                loyalty_revert(tg, spend, 0, 0, f"Возврат баллов, заказ BB-{o.get('id')}")
                 o["loyalty_applied"] = False
             return err
         o["stock_deducted"] = True
@@ -897,13 +948,13 @@ def apply_order_status(o, target):
         o["stock_deducted"] = False
     if tg:
         if want_hold and not have_cb:
-            loyalty_apply(tg, 0, cb, total)
+            loyalty_apply(tg, 0, cb, total, f"Кешбэк за заказ BB-{o.get('id')}")
             o["cashback_credited"] = True
         elif not want_hold and have_cb:
-            loyalty_revert(tg, 0, cb, total)
+            loyalty_revert(tg, 0, cb, total, f"Отмена кешбэка, заказ BB-{o.get('id')}")
             o["cashback_credited"] = False
         if not want_spend and o.get("loyalty_applied"):
-            loyalty_revert(tg, spend, 0, 0)
+            loyalty_revert(tg, spend, 0, 0, f"Возврат баллов, заказ BB-{o.get('id')}")
             o["loyalty_applied"] = False
     o["status"] = target
     return None
@@ -1242,7 +1293,7 @@ def create_order():
     if customer_chat_id:
         try:
             # баллы к оплате резервируем сразу, кешбэк начислится при принятии заказа
-            new_balance = loyalty_apply(customer_chat_id, points_to_spend, 0, 0)
+            new_balance = loyalty_apply(customer_chat_id, points_to_spend, 0, 0, "Оплата баллами нового заказа")
         except ValueError:
             abort(400, description="Недостаточно баллов на балансе")
         except Exception:
@@ -1824,6 +1875,111 @@ def admin_message_customer(oid):
         order["status"] = "contacted"
     save_orders(orders)
     return jsonify(order)
+
+
+# --- Управление баллами покупателей (админка) -----------------------------
+
+def _loyalty_customers():
+    """Покупатели с балансом + данные из их заказов (имя, @username, резерв баллов)."""
+    with DocSession() as db:
+        rows = [(u.telegram_id, int(u.points_balance or 0), float(u.total_spent or 0), u.created_at)
+                for u in db.query(LoyaltyUser).all()]
+    info = {}
+    for o in sorted(load_orders(), key=lambda x: x.get("id", 0)):
+        tg = o.get("customer_chat_id")
+        if not tg:
+            continue
+        d = info.setdefault(tg, {"orders": 0, "reserved": 0, "name": "", "username": "", "phone": "", "last_order": None})
+        d["orders"] += 1
+        d["name"] = o.get("name") or d["name"]
+        d["username"] = o.get("customer_username") or d["username"]
+        d["phone"] = o.get("phone") or d["phone"]
+        d["last_order"] = o.get("created_at") or d["last_order"]
+        if o.get("status") in PENDING_STATUSES and o.get("loyalty_applied"):
+            d["reserved"] += int(o.get("points_spent") or 0)
+    out = []
+    for tg, bal, spent, created in rows:
+        d = info.get(tg, {})
+        if not bal and not d:        # открыл магазин, но баллов и заказов нет — не показываем
+            continue
+        out.append({
+            "telegram_id": tg, "points_balance": bal, "total_spent": round(spent, 2),
+            "name": d.get("name", ""), "username": d.get("username", ""), "phone": d.get("phone", ""),
+            "orders": d.get("orders", 0), "reserved": d.get("reserved", 0),
+            "last_order": d.get("last_order"),
+        })
+    out.sort(key=lambda c: (-c["points_balance"], -c["orders"]))
+    return out
+
+
+@app.route("/api/admin/loyalty", methods=["GET"])
+def admin_get_loyalty():
+    require_admin()
+    customers = _loyalty_customers()
+    return jsonify({
+        "customers": customers,
+        "point_value": POINT_VALUE,
+        "total_points": sum(c["points_balance"] for c in customers),
+        "with_points": sum(1 for c in customers if c["points_balance"] > 0),
+    })
+
+
+@app.route("/api/admin/loyalty/<int:tg_id>/history", methods=["GET"])
+def admin_loyalty_history(tg_id):
+    require_admin()
+    with DocSession() as db:
+        rows = (db.query(LoyaltyLog).filter(LoyaltyLog.telegram_id == tg_id)
+                .order_by(LoyaltyLog.id.desc()).limit(60).all())
+        return jsonify([{
+            "id": r.id, "delta": r.delta, "balance_after": r.balance_after, "kind": r.kind,
+            "note": r.note or "", "at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows])
+
+
+@app.route("/api/admin/loyalty/<int:tg_id>/adjust", methods=["POST"])
+def admin_loyalty_adjust(tg_id):
+    """Начислить / списать / установить / обнулить баллы покупателя."""
+    require_admin()
+    data = request.get_json(force=True, silent=True) or {}
+    action = (data.get("action") or "").strip()
+    if action not in ("add", "subtract", "set", "reset"):
+        abort(400, description="Некорректное действие")
+    note = (data.get("note") or "").strip()[:200]
+
+    amount = 0
+    if action != "reset":
+        try:
+            amount = int(float(data.get("amount")))
+        except (TypeError, ValueError):
+            abort(400, description="Укажите количество баллов целым числом")
+        if amount < 0 or (amount == 0 and action != "set"):
+            abort(400, description="Количество баллов должно быть больше нуля")
+        if amount > MAX_ADMIN_POINTS:
+            abort(400, description="Слишком большое значение")
+
+    try:
+        old, new = loyalty_admin_adjust(tg_id, action, amount, note or "Корректировка администратором")
+    except Exception:
+        log.exception("Не удалось изменить баланс баллов")
+        return jsonify({"error": "Не удалось изменить баланс, попробуйте ещё раз"}), 500
+
+    delta = new - old
+    notified = False
+    if delta and data.get("notify"):
+        if delta > 0:
+            text = f"🎁 Вам начислено {delta} б. Баланс: {new} б."
+        else:
+            text = f"ℹ️ С вашего баланса списано {-delta} б. Баланс: {new} б."
+        if note:
+            text += f"\nПричина: {note}"
+        try:
+            bot.send_message(tg_id, text)
+            notified = True
+        except Exception as e:
+            log.warning("Не удалось уведомить покупателя %s: %s", tg_id, e)
+
+    return jsonify({"ok": True, "telegram_id": tg_id, "old_balance": old, "points_balance": new,
+                    "delta": delta, "notified": notified})
 
 
 @app.route("/api/admin/questions", methods=["GET"])
