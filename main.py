@@ -995,6 +995,80 @@ def on_order_moderation(call: types.CallbackQuery):
 
 # --- Telegram handlers -------------------------------------------------
 
+# --- Меню бота: сценарий /start (текст — «круглые» блоки схемы, кнопки — «квадратные») ----------
+# Ссылка на «Подробно о методах доставки» (Telegraph). Пока не задана — в тексте остаётся обычная строка.
+DELIVERY_INFO_URL = (os.environ.get("DELIVERY_INFO_URL") or "").strip()
+
+
+def _nav_texts():
+    contact = f"@{SHOP_CONTACT}" if SHOP_CONTACT else "менеджеру"
+    more = "ПОДРОБНО обо всех методах доставки"
+    if DELIVERY_INFO_URL:
+        more = f'<a href="{DELIVERY_INFO_URL}">{more}</a>'
+    return {
+        "start": (
+            "Привет, это Борис Бритва Шоп. Интернет магазин никотиновой продукции "
+            "с самым классным сервисом и ценами😉 (для работы магазина нужен VPN)\n\n"
+            "Магазин является витриной, поэтому на сайте ничего оплачивать не надо. "
+            f"Добавьте товары в корзину и оставьте заказ, с вами свяжется {contact}"
+        ),
+        "new": "Добро пожаловать! Есть несколько вариантов покупки🧐 Выберите метод ⬇️",
+        "old": "Спасибо что остаетесь с нами!😇 Есть несколько методов покупки⬇️",
+        "pickup": (
+            "Самовывозом заказ можно забрать в г. Казань на остановках Товарищеская или Калинина. "
+            "О времени обязательно договариваться заранее!!!🤓"
+        ),
+        "delivery": (
+            "Заказывать доставку можно по-разному!🤓\n\n"
+            "Доставка в пункты выдачи (по предоплате со скидкой 10%, при оплате при получении скидки нет😢) "
+            "Товар за 2000 превращается в 1800! 🤩\n\n"
+            "Только по предоплате:\n\n"
+            "Яндекс доставка:\n"
+            "Доставка курьером в течение нескольких часов (стоимость доставки зависит от времени, места)\n\n"
+            "Оплата при получении/предоплате:\n\n"
+            "1) Сдэк - доставка по городу +-100 рублей (срок 1-2 дня. В т.ч по России 2-3 дня)\n\n"
+            "2) 5post - самая дешевая и удобная доставка, а получение в ЛЮБОЙ пятерочке "
+            "(по городу бесплатно! Срок 1-3 дня)\n\n"
+            "Важно! Получить посылку во всех вариантах может <b><i>любой человек!</i></b>😏\n\n"
+            "При заказе от 3тыс. руб можно заказать личную бесплатную доставку по городу "
+            "в популярных местах (тц, станции метро)🤓\n\n" + more
+        ),
+        "ask": f"По всем дополнительным вопросам обращаться в лс {contact}",
+    }
+
+
+def _shop_btn(text):
+    return types.InlineKeyboardButton(text=text, web_app=types.WebAppInfo(url=BASE_URL + "/"))
+
+
+def _nav_screen(screen, user_id=None):
+    """Возвращает (текст, клавиатура) для экрана сценария."""
+    texts = _nav_texts()
+    kb = types.InlineKeyboardMarkup()
+    B = types.InlineKeyboardButton
+    if screen == "start":
+        kb.row(B("я новый клиент🥳", callback_data="nav:new"), B("я уже смешарик!", callback_data="nav:old"))
+        kb.add(B("⭐ Отзывы", url=REVIEWS_URL))
+        if user_id in ADMIN_CHAT_IDS:
+            kb.add(types.InlineKeyboardButton(text="Панель администратора",
+                                              web_app=types.WebAppInfo(url=BASE_URL + "/admin")))
+            kb.add(B("💎 Управление баллами", callback_data="pt:menu"))
+    elif screen in ("new", "old"):
+        kb.row(B("самовывоз", callback_data="nav:pickup"), B("доставка", callback_data="nav:delivery"))
+        kb.add(B("назад", callback_data="nav:start"))
+    elif screen == "pickup":
+        kb.add(B("А доставка?🤔", callback_data="nav:delivery"))
+        kb.add(B("В начало", callback_data="nav:start"))
+        kb.add(_shop_btn("Открыть прайс"))
+    elif screen == "delivery":
+        kb.row(_shop_btn("Я все понял(а)! Открыть прайс"), B("Остались вопросы...😢", callback_data="nav:ask"))
+        kb.add(B("Назад", callback_data="nav:new"))
+    elif screen == "ask":
+        kb.add(_shop_btn("Открыть прайс"))
+        kb.row(B("Назад", callback_data="nav:delivery"), B("В начало", callback_data="nav:start"))
+    return texts[screen], kb
+
+
 @bot.message_handler(commands=["start"])
 def cmd_start(message: types.Message):
     if not BASE_URL:
@@ -1003,47 +1077,28 @@ def cmd_start(message: types.Message):
             "Борис Бритва Шоп: мини-апп ещё не сконфигурирован (не задан WEBHOOK_URL)."
         )
         return
+    uid = message.from_user.id if message.from_user else None
+    text, kb = _nav_screen("start", uid)
+    bot.send_message(message.chat.id, text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
 
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(
-        types.InlineKeyboardButton(
-            text="🚀 Открыть Борис Бритва Шоп",
-            web_app=types.WebAppInfo(url=BASE_URL + "/")
-        )
-    )
 
-    if SHOP_CONTACT:
-        keyboard.add(
-            types.InlineKeyboardButton(
-                text="💬 Написать менеджеру",
-                url=f"https://t.me/{SHOP_CONTACT}"
-            )
-        )
-
-    keyboard.add(types.InlineKeyboardButton(text="⭐ Отзывы", url=REVIEWS_URL))
-
-    is_admin = bool(message.from_user) and message.from_user.id in ADMIN_CHAT_IDS
-    if is_admin:
-        keyboard.add(
-            types.InlineKeyboardButton(
-                text="Панель администратора",
-                web_app=types.WebAppInfo(url=BASE_URL + "/admin")
-            )
-        )
-        keyboard.add(types.InlineKeyboardButton(text="💎 Управление баллами", callback_data="pt:menu"))
-
-    bot.send_message(
-        message.chat.id,
-        "🪒 *Борис Бритва Шоп*\n\n"
-        "*Казань. Всё оригинал.*\n"
-        "Выбирайте товары в каталоге.\n"
-        f"🚚 Доставка — {DELIVERY_FEE} ₽" + (f", при покупке от {FREE_DELIVERY_FROM} ₽ — бесплатно" if FREE_DELIVERY_FROM > 0 else "") + "\n"
-        "📦 Доставка по России — от Пятёрочки: получение на кассах или в постаматах\n\n"
-        "Нажмите кнопку ниже, чтобы открыть каталог и оформить заказ.",
-        reply_markup=keyboard,
-        parse_mode="Markdown",
-    )
-
+@bot.callback_query_handler(func=lambda c: bool(c.data) and c.data.startswith("nav:"))
+def on_nav(call: types.CallbackQuery):
+    screen = call.data.split(":", 1)[1]
+    if screen not in ("start", "new", "old", "pickup", "delivery", "ask") or not BASE_URL:
+        bot.answer_callback_query(call.id)
+        return
+    text, kb = _nav_screen(screen, call.from_user.id if call.from_user else None)
+    try:
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                              reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
+        # «message is not modified» и подобное — не критично; если сообщение недоступно, шлём новое
+        if "not modified" not in str(e):
+            log.warning("nav edit failed: %s", e)
+            bot.send_message(call.message.chat.id, text, reply_markup=kb, parse_mode="HTML",
+                             disable_web_page_preview=True)
+    bot.answer_callback_query(call.id)
 
 
 # --- Управление баллами прямо в боте (только для администраторов) ------------
