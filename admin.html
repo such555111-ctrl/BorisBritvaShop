@@ -398,6 +398,17 @@
   @keyframes logoPop{0%{transform:scale(.55) rotate(-5deg);opacity:0;}60%{transform:scale(1.06) rotate(1deg);opacity:1;}100%{transform:scale(1) rotate(0);}}
 
   /* ---------- остатки ---------- */
+  .fl-box{margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);}
+  .fl-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+  .fl-row .fl-name{flex:1;min-width:0;font-size:14px;overflow-wrap:anywhere;}
+  .fl-row input[type=number]{width:84px;flex:0 0 auto;padding:8px 10px;text-align:center;}
+  .fl-chk{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;letter-spacing:.04em;text-transform:none;color:var(--text);cursor:pointer;}
+  .fl-chk input{width:auto;}
+  .fl-list{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+  .fl-item{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+  .fl-item .fl-n{flex:1;min-width:0;overflow-wrap:anywhere;}
+  .fl-item .stock-step{width:28px;height:28px;font-size:16px;}
+  .fl-item .stock-input[type=number]{width:52px;height:28px;font-size:13px;}
   .stock-row{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid var(--line);flex-wrap:wrap;position:relative;z-index:1;}
   .stock-label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;}
   .stock-step{width:32px;height:32px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg-elev);color:var(--text);font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s var(--ease);padding:0;}
@@ -594,6 +605,12 @@
 
     <label>Вкусы / цвета <span class="muted" style="text-transform:none;letter-spacing:0;">— через запятую</span></label>
     <input type="text" id="fSizes" placeholder="Виноград, Манго, Ледяная мята">
+
+    <div class="fl-box">
+      <label class="fl-chk"><input type="checkbox" id="fFlavorTrack"> Вести наличие по вкусам</label>
+      <div id="fFlavorRows"></div>
+      <div class="muted" id="fFlavorHint" style="margin-top:8px;display:none;">Общий остаток считается автоматически — как сумма по вкусам.</div>
+    </div>
 
     <label>Описание</label>
     <textarea id="fDesc" placeholder="Ресурс, особенности, комплектация"></textarea>
@@ -945,7 +962,7 @@ function renderList(){
         <div class="card-sub">${(p.path && p.path.length ? p.path : [p.category || '—', p.subcategory].filter(Boolean)).join(' › ')} · ${priceLineHTML(p)}${badgeTag}</div>
         <div class="card-sub">Вкусы / цвета: ${(p.sizes||[]).join(', ')}</div>
         <div class="card-sub">${photoCount ? `Фото: ${photoCount}` : 'Без фото'}</div>
-        ${stockRowHTML(p)}
+        ${p.flavor_stock ? flavorStockHTML(p) : stockRowHTML(p)}
         <div class="card-actions">
           <button class="btn-outline btn-icon-label" data-edit="${p.id}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Изменить</button>
           <button class="btn-danger btn-icon-label" data-del="${p.id}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>Удалить</button>
@@ -965,8 +982,89 @@ function renderList(){
     const raw = inp.value.trim();
     setStock(Number(inp.dataset.id), raw === '' ? null : Math.max(0, Math.floor(Number(raw)) || 0));
   });
+  list.querySelectorAll('[data-fl-step]').forEach(b => b.onclick = () => {
+    const p = products.find(x => x.id === Number(b.dataset.id));
+    if (!p) return;
+    const cur = Number((p.flavor_stock || {})[b.dataset.flavor]) || 0;
+    setFlavorStock(p.id, b.dataset.flavor, Math.max(0, cur + Number(b.dataset.flStep)));
+  });
+  list.querySelectorAll('.fl-input').forEach(inp => inp.onchange = () => {
+    setFlavorStock(Number(inp.dataset.id), inp.dataset.flavor, Math.max(0, Math.floor(Number(inp.value)) || 0));
+  });
   list.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteProduct(Number(b.dataset.del)));
 }
+
+function flavorStockHTML(p){
+  const total = Object.values(p.flavor_stock || {}).reduce((a, b) => a + b, 0);
+  const st = stockState(total);
+  const rows = (p.sizes || []).map(sz => {
+    const q = Number((p.flavor_stock || {})[sz]) || 0;
+    const a = escCat(sz);
+    return `<div class="fl-item">
+      <span class="fl-n">${a}</span>
+      <button class="stock-step" type="button" data-fl-step="-1" data-id="${p.id}" data-flavor="${a}" aria-label="Минус один">−</button>
+      <input class="stock-input fl-input" type="number" min="0" inputmode="numeric" data-id="${p.id}" data-flavor="${a}" value="${q}">
+      <button class="stock-step" type="button" data-fl-step="1" data-id="${p.id}" data-flavor="${a}" aria-label="Плюс один">+</button>
+    </div>`;
+  }).join('');
+  return `<div class="stock-row" style="display:block;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span class="stock-label">Наличие по вкусам</span>
+      <span class="stock-state ${st.cls}"><i></i>всего ${total} шт. · ${st.text}</span>
+    </div>
+    <div class="fl-list">${rows}</div>
+  </div>`;
+}
+
+async function setFlavorStock(id, flavor, value){
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const fs = Object.assign({}, p.flavor_stock || {}, { [flavor]: value });
+  const prev = p.flavor_stock, prevTotal = p.stock;
+  p.flavor_stock = fs;
+  p.stock = Object.values(fs).reduce((a, b) => a + b, 0);
+  renderList();
+  try {
+    const updated = await api(`/api/admin/products/${id}`, {
+      method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ flavor_stock: fs })
+    });
+    products = products.map(x => x.id === id ? updated : x);
+    renderList();
+  } catch(e){
+    p.flavor_stock = prev; p.stock = prevTotal;
+    renderList();
+    showToast(e.message);
+  }
+}
+
+// --- поля «наличие по вкусам» в окне товара ---
+let flavorDraft = {};
+function parseSizesInput(){
+  return document.getElementById('fSizes').value.split(',').map(x => x.trim()).filter(Boolean)
+    .filter((x, i, a) => a.indexOf(x) === i);
+}
+function renderFlavorRows(){
+  const on = document.getElementById('fFlavorTrack').checked;
+  const box = document.getElementById('fFlavorRows');
+  document.getElementById('fFlavorHint').style.display = on ? '' : 'none';
+  document.getElementById('fStock').disabled = on;
+  if (!on){ box.innerHTML = ''; return; }
+  // сохранить введённое, пока перерисовываем
+  box.querySelectorAll('input[data-flavor]').forEach(i => { flavorDraft[i.dataset.flavor] = i.value; });
+  const sizes = parseSizesInput();
+  box.innerHTML = sizes.length ? sizes.map(sz => `<div class="fl-row"><span class="fl-name">${escCat(sz)}</span>
+      <input type="number" min="0" inputmode="numeric" placeholder="0" data-flavor="${escCat(sz)}" value="${flavorDraft[sz] ?? ''}"> <span class="muted">шт.</span></div>`).join('')
+    : '<div class="muted" style="margin-top:8px;">Сначала впишите вкусы через запятую выше.</div>';
+  box.querySelectorAll('input[data-flavor]').forEach(i => i.oninput = () => {
+    flavorDraft[i.dataset.flavor] = i.value;
+    const sum = [...box.querySelectorAll('input[data-flavor]')].reduce((a, x) => a + (Math.floor(Number(x.value)) || 0), 0);
+    document.getElementById('fStock').value = sum;
+  });
+  const sum = sizes.reduce((a, sz) => a + (Math.floor(Number(flavorDraft[sz])) || 0), 0);
+  document.getElementById('fStock').value = sum;
+}
+document.getElementById('fFlavorTrack').onchange = renderFlavorRows;
+document.getElementById('fSizes').addEventListener('input', renderFlavorRows);
 
 function stockState(stock){
   if (stock == null) return { cls:'', text:'учёт не ведётся' };
@@ -1675,6 +1773,10 @@ function openModal(id){
   document.getElementById('fOldPrice').value = p?.old_price || '';
   document.getElementById('fStock').value = (p && p.stock != null) ? p.stock : '';
   document.getElementById('fSizes').value = (p?.sizes||[]).join(', ');
+  flavorDraft = Object.fromEntries(Object.entries(p?.flavor_stock || {}).map(([k, v]) => [k, String(v)]));
+  document.getElementById('fFlavorTrack').checked = !!(p && p.flavor_stock);
+  document.getElementById('fFlavorRows').innerHTML = '';
+  renderFlavorRows();
   document.getElementById('fDesc').value = p?.desc || '';
   selectedSwatch = p?.swatch || 0;
   selectedBadge = p?.badge || '';
@@ -1773,6 +1875,17 @@ document.getElementById('saveBtn').onclick = async () => {
   }
 
   const payload = { name, category, path, price, old_price: oldPrice, stock: document.getElementById('fStock').value, badge: selectedBadge, sizes, desc, swatch: selectedSwatch, images: uploadedImages };
+  if (document.getElementById('fFlavorTrack').checked){
+    const fs = {};
+    parseSizesInput().forEach(sz => { fs[sz] = Math.max(0, Math.floor(Number(flavorDraft[sz])) || 0); });
+    if (!Object.keys(fs).length){
+      document.getElementById('formError').textContent = 'Укажите вкусы через запятую, чтобы вести наличие по вкусам';
+      return;
+    }
+    payload.flavor_stock = fs;
+  } else {
+    payload.flavor_stock = null;      // учёт по вкусам выключен
+  }
   const btn = document.getElementById('saveBtn');
   btn.disabled = true;
   try {

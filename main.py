@@ -919,8 +919,30 @@ def sanitize_stock(raw):
     return max(0, min(v, 1_000_000))
 
 
-def qty_by_product(items):
-    """Суммарное количество по id товара (один товар может быть в корзине с разными вкусами)."""
+def sanitize_flavor_stock(raw, sizes):
+    """Остатки по вкусам: {вкус: целое >= 0} только для вкусов из списка sizes.
+    None / пусто — учёт по вкусам не ведётся."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    out = {}
+    for sz in sizes:
+        v = sanitize_stock(raw.get(sz))
+        out[sz] = v if v is not None else 0
+    return out or None
+
+
+def apply_flavor_stock(p):
+    """Если ведётся учёт по вкусам — общий остаток товара равен сумме остатков вкусов."""
+    fs = p.get("flavor_stock")
+    if fs:
+        p["flavor_stock"] = {sz: int(fs.get(sz) or 0) for sz in (p.get("sizes") or [])}
+        p["stock"] = sum(p["flavor_stock"].values())
+    else:
+        p.pop("flavor_stock", None)
+
+
+def qty_by_variant(items):
+    """Суммарное количество по паре (id товара, вкус)."""
     totals = {}
     for i in items:
         try:
@@ -928,18 +950,36 @@ def qty_by_product(items):
             qty = int(i.get("qty") or 1)
         except (TypeError, ValueError, AttributeError):
             continue
+        key = (pid, str(i.get("size") or ""))
+        totals[key] = totals.get(key, 0) + qty
+    return totals
+
+
+def qty_by_product(items):
+    """Суммарное количество по id товара (один товар может быть в корзине с разными вкусами)."""
+    totals = {}
+    for (pid, _size), qty in qty_by_variant(items).items():
         totals[pid] = totals.get(pid, 0) + qty
     return totals
 
 
 def check_stock(items, products_list=None, by_id=None):
     """Только проверяет, хватает ли остатков (ничего не списывает). Возвращает текст ошибки либо None."""
-    totals = qty_by_product(items)
     if by_id is None:
         by_id = {p.get("id"): p for p in (products_list or load_products())}
-    for pid, qty in totals.items():
+    for (pid, size), qty in qty_by_variant(items).items():
         p = by_id.get(pid)
-        if not p or p.get("stock") is None:
+        if not p:
+            continue
+        if p.get("flavor_stock"):
+            have = int(p["flavor_stock"].get(size) or 0)
+            if have <= 0:
+                return f"«{p.get('name')}» ({size}) — нет в наличии"
+            if qty > have:
+                return f"«{p.get('name')}» ({size}) — доступно только {have} шт."
+    for pid, qty in qty_by_product(items).items():
+        p = by_id.get(pid)
+        if not p or p.get("flavor_stock") or p.get("stock") is None:
             continue
         have = int(p["stock"])
         if have <= 0:
@@ -949,19 +989,38 @@ def check_stock(items, products_list=None, by_id=None):
     return None
 
 
+def _shift_product_stock(p, variants, sign):
+    """variants: {размер/вкус: количество}. Меняет остатки (sign=-1 списать, +1 вернуть)."""
+    if p.get("flavor_stock"):
+        for size, qty in variants.items():
+            if size in p["flavor_stock"]:
+                p["flavor_stock"][size] = max(0, int(p["flavor_stock"][size]) + sign * qty)
+        apply_flavor_stock(p)
+        return True
+    if p.get("stock") is not None:
+        p["stock"] = max(0, int(p["stock"]) + sign * sum(variants.values()))
+        return True
+    return False
+
+
+def _variants_by_product(items):
+    out = {}
+    for (pid, size), qty in qty_by_variant(items).items():
+        out.setdefault(pid, {})[size] = qty
+    return out
+
+
 def reserve_stock(items):
     """Проверяет остатки и списывает их. Возвращает текст ошибки либо None. Вызывать под DATA_LOCK."""
-    totals = qty_by_product(items)
     products_list = load_products()
     by_id = {p.get("id"): p for p in products_list}
     err = check_stock(items, by_id=by_id)
     if err:
         return err
     changed = False
-    for pid, qty in totals.items():
+    for pid, variants in _variants_by_product(items).items():
         p = by_id.get(pid)
-        if p and p.get("stock") is not None:
-            p["stock"] = max(0, int(p["stock"]) - qty)
+        if p and _shift_product_stock(p, variants, -1):
             changed = True
     if changed:
         save_products(products_list)
@@ -970,13 +1029,12 @@ def reserve_stock(items):
 
 def shift_stock(items, sign):
     """Возвращает (sign=+1) или снова списывает (sign=-1, не ниже нуля) остатки по позициям заказа."""
-    totals = qty_by_product(items)
+    variants = _variants_by_product(items)
     products_list = load_products()
     changed = False
     for p in products_list:
-        qty = totals.get(p.get("id"))
-        if qty and p.get("stock") is not None:
-            p["stock"] = max(0, int(p["stock"]) + sign * qty)
+        v = variants.get(p.get("id"))
+        if v and _shift_product_stock(p, v, sign):
             changed = True
     if changed:
         save_products(products_list)
@@ -2115,6 +2173,10 @@ def admin_create_product():
         "image": images[0] if images else None,
         "stock": sanitize_stock(data.get("stock")),
     }
+    fs = sanitize_flavor_stock(data.get("flavor_stock"), product["sizes"])
+    if fs:
+        product["flavor_stock"] = fs
+        apply_flavor_stock(product)
     raw_path = data.get("path")
     if not isinstance(raw_path, list):
         raw_path = [data.get("category") or "", data.get("subcategory") or ""]
@@ -2154,6 +2216,13 @@ def admin_update_product(pid):
                 p["sizes"] = [s.strip() for s in sizes_raw.split(",") if s.strip()] if isinstance(sizes_raw, str) else (sizes_raw or p["sizes"])
             if "stock" in data:
                 p["stock"] = sanitize_stock(data.get("stock"))
+            if "flavor_stock" in data:
+                fs = sanitize_flavor_stock(data.get("flavor_stock"), p.get("sizes") or [])
+                if fs:
+                    p["flavor_stock"] = fs
+                else:
+                    p.pop("flavor_stock", None)
+            apply_flavor_stock(p)      # сумма по вкусам -> общий остаток; убрали вкус — убрали и его остаток
             if "desc" in data:
                 p["desc"] = (data.get("desc") or "").strip()
             if "swatch" in data:

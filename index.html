@@ -284,6 +284,9 @@
   .label{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;font-weight:700;}
   .sizes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:26px;}
   .size-btn{min-width:48px;padding:10px 14px;border:1.5px solid var(--line);background:var(--bg);color:var(--text);font-family:var(--font-heading);font-size:13px;border-radius:12px;cursor:pointer;transition:all .2s var(--ease);font-weight:700;}
+  .size-btn small{display:block;margin-top:2px;font-family:var(--font-body);font-size:10.5px;font-weight:600;color:var(--muted);}
+  .size-btn.out{opacity:.45;text-decoration:line-through;}
+  .size-btn.out small{text-decoration:none;}
   .size-btn:active{transform:scale(.9);}
   .size-btn.active{border-color:var(--accent-2);color:#fff;background:var(--pink-dim);box-shadow:0 0 0 3px rgba(37,99,235,.12);}
   .size-btn:hover:not(.active){border-color:var(--muted-dim);}
@@ -1486,7 +1489,7 @@
     <div class="co-box" id="coShipBox" style="display:none;">
       <div class="label" style="margin-top:14px;" id="coShipLabel">Пункт выдачи 5Post</div>
       <textarea id="coShipAddr" class="text-input" style="min-height:64px;" placeholder="Город и адрес пункта выдачи / постамата"></textarea>
-      <div class="co-hint">Стоимость рассчитает менеджер</div>
+      <div class="co-hint" id="coShipHint">Стоимость рассчитает менеджер (по Казани бесплатно)</div>
     </div>
 
     <div id="coWhenWrap">
@@ -1910,9 +1913,18 @@ const emptyStateHTML = `
   </div>`;
 
 // --- остатки ----------------------------------------------------------
-function stockInfo(p){
-  if (p.stock == null || p.stock === '') return null;       // учёт не ведётся
-  const n = Number(p.stock);
+const hasFlavorStock = p => !!(p && p.flavor_stock && typeof p.flavor_stock === 'object' && Object.keys(p.flavor_stock).length);
+// остаток конкретного вкуса (null — учёт по вкусам не ведётся)
+function flavorQty(p, size){
+  if (!hasFlavorStock(p)) return null;
+  const n = Number(p.flavor_stock[size]);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+function stockInfo(p, size){
+  let raw = p.stock;
+  if (size != null && hasFlavorStock(p)) raw = flavorQty(p, size);
+  if (raw == null || raw === '') return null;       // учёт не ведётся
+  const n = Number(raw);
   if (!Number.isFinite(n)) return null;
   if (n <= 0)  return { n:0, tone:'out',  pill:'Нет в наличии', title:'Нет в наличии', side:'', pct:0, hint:'Уточните у менеджера, когда будет поступление' };
   if (n === 1) return { n, tone:'last', pill:'Остался 1 шт.', title:'Последний экземпляр', side:'1 шт.', pct:5 };
@@ -1921,7 +1933,7 @@ function stockInfo(p){
   return { n, tone:'ok', pill:`В наличии: ${n} шт.`, title:'В наличии', side:`${n} шт.`, pct:Math.min(100, Math.round(n/20*100)) };
 }
 const inStock = p => { const st = stockInfo(p); return !st || st.n > 0; };
-const cartQtyOf = id => cart.filter(i => i.id === id).reduce((s,i) => s + i.qty, 0);
+const cartQtyOf = (id, size) => cart.filter(i => i.id === id && (size === undefined || i.size === size)).reduce((s,i) => s + i.qty, 0);
 
 const fmtMoney2 = n => Number(n).toLocaleString('ru-RU', { minimumFractionDigits:2, maximumFractionDigits:2 });
 
@@ -2186,29 +2198,40 @@ function openProduct(id){
   }
   document.getElementById('pdName').textContent = p.name;
   document.getElementById('pdPrice').innerHTML = priceHTML(p);
-  const pdStock = document.getElementById('pdStock');
-  const stInfo = stockInfo(p);
-  if (stInfo){
-    pdStock.className = `pd-stock tone-${stInfo.tone}`;
-    pdStock.innerHTML =
-      `<div class="pd-stock-top"><i></i><span>${stInfo.title}</span>${stInfo.side ? `<em>${stInfo.side}</em>` : ''}</div>` +
-      (stInfo.n > 0 ? `<div class="stock-bar"><span style="width:${Math.max(4, stInfo.pct)}%"></span></div>` : '') +
-      (stInfo.hint ? `<div class="pd-stock-hint">${stInfo.hint}</div>` : '');
-    pdStock.hidden = false;
-  } else {
-    pdStock.hidden = true;
-    pdStock.innerHTML = '';
-  }
-  document.getElementById('pdDesc').textContent = p.desc;
   const sizesEl = document.getElementById('pdSizes');
-  sizesEl.innerHTML = p.sizes.map((s,i)=>`<button class="size-btn ${i===0?'active':''}" data-size="${s}">${s}</button>`).join('');
-  sizesEl.querySelectorAll('.size-btn').forEach(b=>{
-    b.onclick = ()=>{ sizesEl.querySelectorAll('.size-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); };
-  });
+  const flavored = hasFlavorStock(p);
+  // первый доступный вкус выбран по умолчанию
+  const firstFree = flavored ? Math.max(0, p.sizes.findIndex(sz => flavorQty(p, sz) > 0)) : 0;
+  sizesEl.innerHTML = p.sizes.map((sz,i)=>{
+    const q = flavored ? flavorQty(p, sz) : null;
+    const out = flavored && q <= 0;
+    return `<button class="size-btn ${i===firstFree?'active':''}${out?' out':''}" data-size="${escHtml(sz)}">${escHtml(sz)}${flavored ? `<small>${out ? 'нет' : q + ' шт.'}</small>` : ''}</button>`;
+  }).join('');
   const addBtn = document.getElementById('pdAdd');
-  const soldOutNow = !!(stInfo && stInfo.n === 0);
-  addBtn.disabled = soldOutNow;
-  addBtn.textContent = soldOutNow ? 'Нет в наличии' : 'Добавить в корзину';
+  const renderPdStock = () => {
+    const pdStock = document.getElementById('pdStock');
+    const size = flavored ? (sizesEl.querySelector('.size-btn.active')?.dataset.size) : undefined;
+    const stInfo = stockInfo(p, size);
+    if (stInfo){
+      pdStock.className = `pd-stock tone-${stInfo.tone}`;
+      pdStock.innerHTML =
+        `<div class="pd-stock-top"><i></i><span>${flavored && size ? escHtml(size) + ': ' : ''}${stInfo.title}</span>${stInfo.side ? `<em>${stInfo.side}</em>` : ''}</div>` +
+        (stInfo.n > 0 ? `<div class="stock-bar"><span style="width:${Math.max(4, stInfo.pct)}%"></span></div>` : '') +
+        (stInfo.hint ? `<div class="pd-stock-hint">${stInfo.hint}</div>` : '');
+      pdStock.hidden = false;
+    } else {
+      pdStock.hidden = true;
+      pdStock.innerHTML = '';
+    }
+    const soldOutNow = !!(stInfo && stInfo.n === 0);
+    addBtn.disabled = soldOutNow;
+    addBtn.textContent = soldOutNow ? 'Нет в наличии' : 'Добавить в корзину';
+  };
+  sizesEl.querySelectorAll('.size-btn').forEach(b=>{
+    b.onclick = ()=>{ sizesEl.querySelectorAll('.size-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderPdStock(); };
+  });
+  document.getElementById('pdDesc').textContent = p.desc;
+  renderPdStock();
   document.getElementById('pdLike').classList.toggle('active', isFav(p.id));
   openSheet('productSheet');
 }
@@ -2309,16 +2332,17 @@ document.getElementById('pdGallery').addEventListener('click', (e) => {
 });
 
 document.getElementById('pdAdd').onclick = (e) => {
-  const stNow = stockInfo(currentProduct);
+  const size = document.querySelector('#pdSizes .size-btn.active')?.dataset.size || currentProduct.sizes[0];
+  const stNow = stockInfo(currentProduct, size);
   if (stNow){
     if (stNow.n <= 0){ showToast('Этого товара нет в наличии', 'error'); return; }
-    if (cartQtyOf(currentProduct.id) + 1 > stNow.n){
+    const inCartNow = hasFlavorStock(currentProduct) ? cartQtyOf(currentProduct.id, size) : cartQtyOf(currentProduct.id);
+    if (inCartNow + 1 > stNow.n){
       showToast(`В наличии только ${stNow.n} шт. — они уже в корзине`, 'error');
       if (tg) tg.HapticFeedback?.notificationOccurred('warning');
       return;
     }
   }
-  const size = document.querySelector('#pdSizes .size-btn.active')?.dataset.size || currentProduct.sizes[0];
   const existing = cart.find(i=>i.id===currentProduct.id && i.size===size);
   if (existing) existing.qty += 1;
   else cart.push({ id: currentProduct.id, name: currentProduct.name, price: currentProduct.price, size, swatch: currentProduct.swatch, images: currentProduct.images, image: currentProduct.image, qty: 1 });
@@ -2721,7 +2745,7 @@ function updateCheckoutSummary(){
   const goodsSum = s.subtotal - s.discount;
   const row = document.getElementById('coSumDlvRow');
   row.style.display = (isDlv || isShip) ? 'flex' : 'none';
-  document.getElementById('coSumDlv').textContent = isShip ? 'рассчитает менеджер' : (s.fee ? fmt(s.fee) : 'бесплатно');
+  document.getElementById('coSumDlv').textContent = isShip ? ('рассчитает менеджер ' + (coState.mode === 'cdek' ? '(по Казани около 100 руб)' : '(по Казани бесплатно)')) : (s.fee ? fmt(s.fee) : 'бесплатно');
   document.getElementById('coFeeLabel').textContent = 'от ' + fmt(PERSONAL_DELIVERY_MIN);
   const hint = document.getElementById('coFreeHint');
   if (hint){
@@ -2750,6 +2774,7 @@ function renderCheckoutOpts(){
   const isShip = coState.mode === 'fivepost' || coState.mode === 'cdek';
   document.getElementById('coShipBox').style.display = isShip ? '' : 'none';
   document.getElementById('coShipLabel').textContent = coState.mode === 'cdek' ? 'Пункт выдачи или адрес СДЭК' : 'Пункт выдачи или постамат 5Post';
+  document.getElementById('coShipHint').textContent = 'Стоимость рассчитает менеджер ' + (coState.mode === 'cdek' ? '(по Казани около 100 руб)' : '(по Казани бесплатно)');
   document.getElementById('coWhenWrap').style.display = isShip ? 'none' : '';
   document.getElementById('coTimeBox').style.display = (!isShip && coState.when === 'time') ? '' : 'none';
   document.querySelectorAll('#coMode .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === coState.mode));
@@ -3004,7 +3029,7 @@ async function refreshProducts(force){
     const r = await fetch('products.json?_=' + Date.now(), { cache:'no-store' });
     if (!r.ok) return;
     const data = await r.json();
-    const sig = list => list.map(p => p.id + ':' + p.stock).join(',');
+    const sig = list => list.map(p => p.id + ':' + p.stock + ':' + JSON.stringify(p.flavor_stock || null)).join(',');
     if (sig(data) === sig(PRODUCTS)) return;
     PRODUCTS = data;
     buildSearchIndex();
@@ -3014,12 +3039,13 @@ async function refreshProducts(force){
     let trimmed = false;
     cart = cart.filter(it => {
       const p = PRODUCTS.find(x => x.id === it.id);
-      const st = p ? stockInfo(p) : null;
+      const st = p ? stockInfo(p, it.size) : null;
       if (!st) return true;
-      if (left[it.id] == null) left[it.id] = st.n;
-      const take = Math.min(it.qty, left[it.id]);
+      const key = hasFlavorStock(p) ? it.id + '|' + it.size : String(it.id);
+      if (left[key] == null) left[key] = st.n;
+      const take = Math.min(it.qty, left[key]);
       if (take !== it.qty) trimmed = true;
-      left[it.id] -= take;
+      left[key] -= take;
       it.qty = take;
       return take > 0;
     });
@@ -3462,9 +3488,13 @@ function qaFloatPlusOne(btn){
 function quickAdd(id, btn){
   const p = PRODUCTS.find(x => x.id === id);
   if (!p) return;
-  const st = stockInfo(p);
+  const st0 = stockInfo(p);
+  if (st0 && st0.n <= 0){ showToast('Этого товара нет в наличии', 'error'); qaHaptic('warn'); return; }
+  // если у товара несколько вариантов — нужно выбрать, открываем карточку
+  if (!p.sizes || p.sizes.length !== 1){ openProduct(id); return; }
+  const st = stockInfo(p, p.sizes[0]);
   if (st){
-    if (st.n <= 0){ showToast('Этого товара нет в наличии', 'error'); qaHaptic('warn'); return; }
+    if (st.n <= 0){ showToast('Этого вкуса нет в наличии', 'error'); qaHaptic('warn'); return; }
     if (cartQtyOf(id) + 1 > st.n){
       showToast(`В наличии только ${st.n} шт. — они уже в корзине`, 'error');
       qaHaptic('warn');
@@ -3472,8 +3502,6 @@ function quickAdd(id, btn){
       return;
     }
   }
-  // если у товара несколько вариантов — нужно выбрать, открываем карточку
-  if (!p.sizes || p.sizes.length !== 1){ openProduct(id); return; }
 
   const size = p.sizes[0];
   const existing = cart.find(i => i.id === id && i.size === size);
