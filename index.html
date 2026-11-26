@@ -1830,12 +1830,14 @@ function pth(p){
 }
 function inDeep(p){
   if (!activeDeep.length) return true;
+  const base = deepBase();
+  if (!base) return true;
   const path = pth(p);
-  return activeDeep.every((n, i) => path[i + 2] === n);
+  return activeDeep.every((n, i) => path[base.length + i] === n);
 }
 // от какого бренда строить ряды: из верхних чипов или из бокового меню
 function deepBase(){
-  if (typeof menuFilter !== 'undefined' && menuFilter && menuFilter.sub && menuFilter.brand) return [menuFilter.sub, menuFilter.brand];
+  if (typeof menuFilter !== 'undefined' && menuFilter && menuFilter.path && menuFilter.path.length) return menuFilter.path;
   if (activeCategory !== 'Все' && activeSub !== 'Все' && activeSub !== 'Другие') return [activeCategory, activeSub];
   return null;
 }
@@ -3514,13 +3516,21 @@ document.getElementById('favGrid').addEventListener('click', onQuickAddClick, tr
 
 // Соответствие пунктов меню реальным категориям из products.json.
 // Меняй список cats / условие test под свой ассортимент.
-const MENU_MAP = {
-  all:  { label:'Все товары' },
-  vape: { label:'Всё для вейпа', cats:['Одноразки','Жидкость','Поды','Расходники','Ватки'] },
-  chew: { label:'Жевательный табак', cats:['Шайбы'] },
-  cigs: { label:'Импортные сигареты / сигариллы', cats:['Сигареты'] },
-  sale: { label:'РАСПРОДАЖА', test: p => p.badge === 'sale' || (p.old_price > p.price) }
+// Меню настраивается в админке (вкладка «Меню») и приходит с /api/menu.
+// Пока ответа нет (или сервер недоступен) работает набор по умолчанию.
+var MENU_CFG = {
+  title:'Каталог товаров', all_label:'Все товары', show_points:true,
+  items:[
+    { id:1, type:'category', label:'Всё для вейпа', paths:[['Одноразки'],['Жидкость'],['Поды'],['Расходники'],['Ватки']] },
+    { id:2, type:'category', label:'Жевательный табак', paths:[['Шайбы']] },
+    { id:3, type:'category', label:'Импортные сигареты / сигариллы', paths:[['Сигареты']] },
+    { id:4, type:'sale', label:'РАСПРОДАЖА' },
+    { id:5, type:'link', label:'Отзывы', url:'https://t.me/+VG4k8-hxZ5wxNGUy', icon:'⭐' }
+  ]
 };
+const pathStarts = (path, pre) => pre.length <= path.length && pre.every((n, i) => path[i] === n);
+const matchPaths = paths => p => { const pp = pth(p); return paths.some(x => pathStarts(pp, x)); };
+const isSaleProduct = p => p.badge === 'sale' || (p.old_price > p.price);
 
 // null = фильтра нет. var, чтобы функции были доступны из renderGrid/runSearch в любой момент.
 var menuFilter = null;
@@ -3580,36 +3590,80 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
   const CHEV_L = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
   let navTree = [], navPath = [], navDir = '';
 
-  function brandNodes(key, cat){
-    return subsFor(cat).map(b => ({
-      label:b, key, cat, brand:b, kids:[],
-      count: PRODUCTS.filter(p => p.category === cat && inSub(p, b)).length
-    }));
+  // следующий уровень вложенности под путём prefix — берём из реальных товаров
+  function childNames(prefix){
+    const out = [];
+    for (const p of PRODUCTS){
+      const pp = pth(p);
+      if (pp.length > prefix.length && pathStarts(pp, prefix) && !out.includes(pp[prefix.length])) out.push(pp[prefix.length]);
+    }
+    return out;
+  }
+  function pathNode(key, path){
+    return {
+      label: path[path.length - 1], key, path,
+      count: PRODUCTS.filter(p => pathStarts(pth(p), path)).length,
+      kids: childNames(path).map(n => pathNode(key, [...path, n]))
+    };
   }
   function buildTree(){
     const root = [];
-    for (const [key, def] of Object.entries(MENU_MAP)){
-      if (key === 'all') continue;
-      const cats  = (def.cats || []).filter(c => PRODUCTS.some(p => p.category === c));
-      const count = PRODUCTS.filter(p => def.test ? def.test(p) : cats.includes(p.category)).length;
-      let kids = [];
-      if (cats.length > 1){
-        kids = cats.map(c => ({
-          label:c, key, cat:c,
-          count: PRODUCTS.filter(p => p.category === c).length,
-          kids: brandNodes(key, c)
-        }));
-      } else if (cats.length === 1){
-        kids = brandNodes(key, cats[0]);
+    for (const it of MENU_CFG.items){
+      if (it.type === 'link') continue;
+      if (it.type === 'sale'){
+        root.push({ label:it.label, key:it.id, count:PRODUCTS.filter(isSaleProduct).length, kids:[], sale:true, path:null });
+        continue;
       }
-      root.push({ label:def.label, key, count, kids, sale:key === 'sale' });
+      const paths = (it.paths || []).filter(pp => pp.length);
+      const count = PRODUCTS.filter(matchPaths(paths)).length;
+      let kids = [];
+      if (paths.length > 1)        kids = paths.filter(pp => PRODUCTS.some(p => pathStarts(pth(p), pp))).map(pp => pathNode(it.id, pp));
+      else if (paths.length === 1) kids = childNames(paths[0]).map(n => pathNode(it.id, [...paths[0], n]));
+      root.push({ label:it.label, key:it.id, count, kids, sale:false, path: paths.length === 1 ? paths[0] : null });
     }
     return root;
   }
 
-  const isCur = n => !!menuFilter && menuFilter.key === n.key
-    && (menuFilter.sub || null) === (n.cat || null)
-    && (menuFilter.brand || null) === (n.brand || null);
+  const samePath = (a, b) => (!a && !b) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
+  const isCur = n => !!menuFilter && menuFilter.key === n.key && samePath(menuFilter.path, n.path || null);
+
+  /* ---------- оформление меню из настроек: заголовок, баллы, ссылки ---------- */
+  const ARROW = '<svg class="re-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  function openLink(url){
+    const t = window.Telegram && window.Telegram.WebApp;
+    try {
+      if (t && /^https?:\/\/t\.me\//i.test(url) && t.openTelegramLink){ t.openTelegramLink(url); return; }
+      if (t && /^https?:/i.test(url) && t.openLink){ t.openLink(url); return; }
+    } catch(e){}
+    window.open(url, '_blank');
+  }
+  function applyMenuChrome(){
+    const title = sidebar.querySelector('.sidebar-title');
+    if (title) title.textContent = MENU_CFG.title || 'Каталог товаров';
+    const loy = document.getElementById('loyMenu');
+    if (loy) loy.style.display = MENU_CFG.show_points === false ? 'none' : '';
+    const box = sidebar.querySelector('.menu-reviews');
+    if (box){
+      const links = MENU_CFG.items.filter(i => i.type === 'link' && /^(https?:\/\/|tg:\/\/)/i.test(i.url || ''));
+      box.hidden = !links.length;
+      box.innerHTML = links.map((l, i) =>
+        `<button class="reviews-entry" type="button" data-link="${i}"${i ? ' style="margin-top:8px"' : ''}>` +
+        `<span class="re-star" aria-hidden="true">${escHtml(l.icon || '🔗')}</span><span class="re-name">${escHtml(l.label)}</span>${ARROW}</button>`
+      ).join('');
+      box.onclick = e => {
+        const b = e.target.closest('[data-link]');
+        if (b && links[+b.dataset.link]) openLink(links[+b.dataset.link].url);
+      };
+    }
+  }
+  applyMenuChrome();
+  fetch('/api/menu').then(r => r.ok ? r.json() : null).then(c => {
+    if (!c || !Array.isArray(c.items)) return;
+    MENU_CFG = c;
+    applyMenuChrome();
+    if (menuFilter && !MENU_CFG.items.some(i => i.id === menuFilter.key)){ menuFilter = null; renderBadge(); renderGrid(true); }
+    if (isOpen()){ navTree = buildTree(); navPath = []; navDir = ''; renderNav(); }
+  }).catch(() => {});
 
   function renderNav(){
     const node = navPath[navPath.length - 1];
@@ -3623,7 +3677,7 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
     }
     html += '<ul class="cat-list">';
     if (!node){
-      html += `<li class="cat-item"><button class="cat-link${!menuFilter ? ' current' : ''}" type="button" data-nav="home"><span class="cat-name">Все товары</span></button></li>`;
+      html += `<li class="cat-item"><button class="cat-link${!menuFilter ? ' current' : ''}" type="button" data-nav="home"><span class="cat-name">${escHtml(MENU_CFG.all_label || 'Все товары')}</span></button></li>`;
     }
     html += kids.map((n, i) =>
       `<li class="cat-item${n.sale ? ' cat-sale' : ''}"><button class="cat-link${isCur(n) && !n.kids.length ? ' current' : ''}" type="button" data-i="${i}">` +
@@ -3662,14 +3716,22 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
   bar.addEventListener('click', e => { if (e.target.closest('.cat-reset')) applyMenuFilter('all'); });
 
   /* ---------- применение фильтра ---------- */
-  function applyMenuFilter(key, subCat, brand){
-    const def = MENU_MAP[key];
-    if (!def) return;
+  function applyMenuFilter(key, path){
     if (key === 'all') menuFilter = null;
-    else if (subCat)   menuFilter = { key, sub:subCat, brand:brand || null,
-                         label:[def.label, subCat, brand].filter(Boolean).join(' · '),
-                         test: brand ? (p => p.category === subCat && inSub(p, brand)) : (p => p.category === subCat) };
-    else               menuFilter = { key, sub:null,   label:def.label, test:def.test || (p => def.cats.includes(p.category)) };
+    else {
+      const it = MENU_CFG.items.find(x => x.id === key);
+      if (!it) return;
+      if (it.type === 'sale') menuFilter = { key, path:null, label:it.label, test:isSaleProduct };
+      else {
+        const paths = (it.paths || []).filter(pp => pp.length);
+        if (path && path.length){
+          const own = paths.length === 1 ? paths[0].length : 0;     // у раздела из одной категории её имя уже в названии раздела
+          menuFilter = { key, path, label:[it.label, ...path.slice(own)].join(' · '), test:matchPaths([path]) };
+        } else {
+          menuFilter = { key, path:null, label:it.label, test:matchPaths(paths) };
+        }
+      }
+    }
 
     activeCategory = 'Все'; activeSub = 'Все'; activeDeep = [];
     filtersEl.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.cat === 'Все'));
@@ -3699,7 +3761,7 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
     if (nav === 'home'){ pick('all'); return; }
     if (nav === 'all'){
       const n = navPath[navPath.length - 1];
-      if (n) pick(n.key, n.cat || null, null);
+      if (n) pick(n.key, n.path || null);
       return;
     }
     if (b.dataset.i === undefined) return;
@@ -3707,11 +3769,11 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
     const n = (parent ? parent.kids : navTree)[+b.dataset.i];
     if (!n) return;
     if (n.kids.length){ navPath.push(n); navDir = 'fwd'; renderNav(); }
-    else pick(n.key, n.cat || null, n.brand || null);
+    else pick(n.key, n.path || null);
   });
 
-  function pick(key, subCat, brand){
-    applyMenuFilter(key, subCat, brand);
+  function pick(key, path){
+    applyMenuFilter(key, path);
     closeMenu();
     setTimeout(scrollToCatalog, 120);
   }

@@ -731,6 +731,120 @@ def sync_categories_with_products():
     return cats
 
 
+# --- Настраиваемое боковое меню -------------------------------------------
+MENU_KEY = "menu_v1"
+MENU_TYPES = {"category", "sale", "link"}
+MAX_MENU_ITEMS = 30
+
+
+def _clean_text(raw, limit):
+    return re.sub(r"\s+", " ", str(raw or "")).strip()[:limit]
+
+
+def _default_menu(cats):
+    """Меню по умолчанию — то, что раньше было зашито в index.html."""
+    root = {c["name"].casefold(): c["id"] for c in cats if c.get("parent_id") is None}
+
+    def ids(*names):
+        return [root[n.casefold()] for n in names if n.casefold() in root]
+
+    return {
+        "title": "Каталог товаров", "all_label": "Все товары", "show_points": True,
+        "items": [
+            {"id": 1, "type": "category", "label": "Всё для вейпа", "visible": True,
+             "cat_ids": ids("Одноразки", "Жидкость", "Поды", "Расходники", "Ватки")},
+            {"id": 2, "type": "category", "label": "Жевательный табак", "visible": True, "cat_ids": ids("Шайбы")},
+            {"id": 3, "type": "category", "label": "Импортные сигареты / сигариллы", "visible": True,
+             "cat_ids": ids("Сигареты")},
+            {"id": 4, "type": "sale", "label": "РАСПРОДАЖА", "visible": True},
+            {"id": 5, "type": "link", "label": "Отзывы", "visible": True, "url": REVIEWS_URL, "icon": "⭐"},
+        ],
+    }
+
+
+def save_menu(cfg):
+    with DocSession() as db:
+        val = json.dumps(cfg, ensure_ascii=False)
+        row = db.get(Meta, MENU_KEY)
+        if row:
+            row.value = val
+        else:
+            db.add(Meta(key=MENU_KEY, value=val))
+        db.commit()
+
+
+def load_menu():
+    with DocSession() as db:
+        row = db.get(Meta, MENU_KEY)
+        raw = row.value if row else None
+    if raw:
+        try:
+            cfg = json.loads(raw)
+            if isinstance(cfg, dict) and isinstance(cfg.get("items"), list):
+                return cfg
+        except ValueError:
+            pass
+    cfg = _default_menu(sync_categories_with_products())
+    save_menu(cfg)
+    return cfg
+
+
+def sanitize_menu(raw, cats):
+    """Проверяет присланное меню. Возвращает (cfg, error)."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
+        return None, "Некорректные данные меню"
+    if len(raw["items"]) > MAX_MENU_ITEMS:
+        return None, f"Не больше {MAX_MENU_ITEMS} пунктов меню"
+    valid = {c["id"] for c in cats}
+    given = [i.get("id") for i in raw["items"] if isinstance(i, dict) and isinstance(i.get("id"), int)]
+    next_id = max(given + [0]) + 1
+    used, items = set(), []
+    for it in raw["items"]:
+        if not isinstance(it, dict):
+            continue
+        typ = it.get("type")
+        if typ not in MENU_TYPES:
+            return None, "Неизвестный тип пункта меню"
+        label = _clean_text(it.get("label"), 60)
+        if not label:
+            return None, "У каждого пункта должно быть название"
+        iid = it.get("id")
+        if not isinstance(iid, int) or iid in used:
+            iid, next_id = next_id, next_id + 1
+        used.add(iid)
+        out = {"id": iid, "type": typ, "label": label, "visible": bool(it.get("visible", True))}
+        if typ == "category":
+            ids = []
+            for x in it.get("cat_ids") or []:
+                try:
+                    x = int(x)
+                except (TypeError, ValueError):
+                    continue
+                if x in valid and x not in ids:
+                    ids.append(x)
+            out["cat_ids"] = ids
+        elif typ == "link":
+            url = str(it.get("url") or "").strip()
+            if not re.match(r"^(https?://|tg://)\S+$", url, re.I):
+                return None, f"Некорректная ссылка у пункта «{label}» (нужен адрес вида https://t.me/…)"
+            out["url"] = url[:300]
+            out["icon"] = _clean_text(it.get("icon"), 8)
+        items.append(out)
+    return {
+        "title": _clean_text(raw.get("title"), 40) or "Каталог товаров",
+        "all_label": _clean_text(raw.get("all_label"), 40) or "Все товары",
+        "show_points": bool(raw.get("show_points", True)),
+        "items": items,
+    }, None
+
+
+def _is_sale(p):
+    try:
+        return p.get("badge") == "sale" or (p.get("old_price") or 0) > (p.get("price") or 0)
+    except TypeError:
+        return p.get("badge") == "sale"
+
+
 def products_with_path(items):
     for p in items:
         if not (isinstance(p.get("path"), list) and p["path"]):
@@ -2072,6 +2186,53 @@ def admin_delete_product(pid):
     save_products(new_items)
     purge_unused_images(removed.get("images") or [])
     return jsonify({"ok": True})
+
+
+@app.route("/api/menu", methods=["GET"])
+def public_menu():
+    cfg = load_menu()
+    by_id = {c["id"]: c for c in load_categories()}
+    items = []
+    for it in cfg["items"]:
+        if not it.get("visible", True):
+            continue
+        o = dict(it)
+        if it["type"] == "category":
+            o["paths"] = [cat_names_path(by_id, i) for i in o.pop("cat_ids", []) if i in by_id]
+        items.append(o)
+    resp = jsonify({"title": cfg.get("title"), "all_label": cfg.get("all_label"),
+                    "show_points": cfg.get("show_points", True), "items": items})
+    resp.headers["Cache-Control"] = "public, max-age=30"
+    return resp
+
+
+@app.route("/api/admin/menu", methods=["GET"])
+@locked
+def admin_get_menu():
+    require_admin()
+    cfg = load_menu()
+    cats = load_categories()
+    by_id = {c["id"]: c for c in cats}
+    prods = products_with_path(load_products())
+    for it in cfg["items"]:
+        if it["type"] == "category":
+            paths = [cat_names_path(by_id, i) for i in it.get("cat_ids", []) if i in by_id]
+            it["count"] = sum(1 for p in prods if any(_path_startswith(p["path"], pp) for pp in paths))
+        elif it["type"] == "sale":
+            it["count"] = sum(1 for p in prods if _is_sale(p))
+    return jsonify(cfg)
+
+
+@app.route("/api/admin/menu", methods=["PUT"])
+@locked
+def admin_save_menu():
+    require_admin()
+    data = request.get_json(force=True, silent=True) or {}
+    cfg, err = sanitize_menu(data, sync_categories_with_products())
+    if err:
+        return jsonify({"error": err}), 400
+    save_menu(cfg)
+    return admin_get_menu()
 
 
 @app.route("/api/admin/categories", methods=["GET"])

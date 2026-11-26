@@ -152,6 +152,25 @@
   .cat-btn:hover{border-color:var(--accent);color:var(--accent);}
   .cat-btn.del:hover{border-color:var(--danger);color:var(--danger);}
   .cat-btn[disabled]{opacity:.35;cursor:not-allowed;}
+
+  /* ---------- редактор бокового меню ---------- */
+  .set-card{border:1.5px solid var(--line);border-radius:12px;padding:4px 14px 16px;background:var(--bg-elev);margin-bottom:16px;}
+  .mi-row{padding:12px;border-top:1px solid var(--line-soft);}
+  .mi-row:first-child{border-top:none;}
+  .mi-row.off{opacity:.55;}
+  .mi-top{display:flex;align-items:flex-start;gap:10px;}
+  .mi-ico{flex:0 0 auto;width:22px;text-align:center;font-size:16px;line-height:1.3;}
+  .mi-main{flex:1;min-width:0;}
+  .mi-name{font-size:14px;font-weight:700;line-height:1.3;overflow-wrap:anywhere;}
+  .mi-sub{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45;overflow-wrap:anywhere;}
+  .mi-count{flex:0 0 auto;font-size:11px;color:var(--muted);padding-top:2px;}
+  .mi-actions{display:flex;gap:6px;margin:10px 0 0 32px;flex-wrap:wrap;}
+  .cat-btn.on{border-color:var(--accent);color:var(--accent);}
+  .chk-list{border:1.5px solid var(--line);border-radius:10px;max-height:240px;overflow-y:auto;background:var(--bg);margin-top:6px;}
+  .chk-row{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-top:1px solid var(--line-soft);font-size:14px;}
+  .chk-row:first-child{border-top:none;}
+  .chk-box{flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:transparent;transition:all .15s var(--ease);}
+  .chk-row.on .chk-box{background:var(--accent);border-color:var(--accent);color:#fff;}
   .row{display:flex;gap:10px;}
   .row > *{flex:1;}
   .badge-picker{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
@@ -522,6 +541,7 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="products">Товары</button>
     <button class="tab-btn" data-tab="categories">Категории</button>
+    <button class="tab-btn" data-tab="menu">Меню</button>
     <button class="tab-btn" data-tab="orders">Заказы<span class="tab-badge" id="ordersBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="questions">Вопросы<span class="tab-badge" id="questionsBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="reviews">Отзывы<span class="tab-badge" id="reviewsBadge" style="display:none;"></span></button>
@@ -603,6 +623,46 @@
     <div class="modal-actions">
       <button class="btn-outline" id="catCancelBtn">Отмена</button>
       <button class="btn" id="catSaveBtn">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="menuOverlay">
+  <div class="modal">
+    <div class="modal-title" id="miModalTitle">Новый пункт меню</div>
+    <div class="muted" id="miModalSub">пункт появится в боковом меню магазина</div>
+
+    <div id="miTypeWrap">
+      <label>Тип пункта</label>
+      <div class="badge-picker" id="miTypePicker">
+        <button type="button" class="badge-opt" data-type="category">Раздел с категориями</button>
+        <button type="button" class="badge-opt" data-type="sale">Распродажа</button>
+        <button type="button" class="badge-opt" data-type="link">Ссылка</button>
+      </div>
+    </div>
+
+    <label>Название в меню</label>
+    <input type="text" id="miLabel" maxlength="60" placeholder="Всё для вейпа">
+
+    <div id="miCatBlock">
+      <label>Какие категории входят <span class="muted" style="text-transform:none;letter-spacing:0;">— отметьте любые: категорию, бренд или модель, вложенные войдут сами</span></label>
+      <div class="chk-list" id="miCats"></div>
+    </div>
+
+    <div id="miSaleBlock" class="muted" style="margin-top:14px;line-height:1.6;">Пункт собирается сам: сюда попадают товары со старой ценой выше новой и с бейджем «Скидка». Выглядит как яркая плашка «HOT».</div>
+
+    <div id="miLinkBlock">
+      <label>Ссылка</label>
+      <input type="text" id="miUrl" placeholder="https://t.me/ваш_канал">
+      <label>Значок <span class="muted" style="text-transform:none;letter-spacing:0;">— эмодзи, необязательно</span></label>
+      <input type="text" id="miIcon" maxlength="8" placeholder="⭐">
+    </div>
+
+    <div class="error" id="miError"></div>
+
+    <div class="modal-actions">
+      <button class="btn-outline" id="miCancelBtn">Отмена</button>
+      <button class="btn" id="miSaveBtn">Сохранить</button>
     </div>
   </div>
 </div>
@@ -725,6 +785,10 @@ let pwd = localStorage.getItem('sh_admin_pwd') || '';
 let products = [];
 let categories = [];          // плоский список из /api/admin/categories
 let editingCatId = null;
+let menuCfg = null;           // настройки бокового меню
+let editingMenuId = null;
+let miType = 'category';
+let miSel = new Set();
 let formCatIds = [];          // выбранная цепочка категорий в форме товара
 let orders = [];
 let questions = [];
@@ -810,7 +874,7 @@ async function enterApp(){
   await loadPromos();
 }
 
-const TAB_TITLES = { products:'Товары', categories:'Категории', orders:'Заказы', questions:'Вопросы', reviews:'Отзывы', promos:'Промокоды', loyalty:'Баллы покупателей' };
+const TAB_TITLES = { products:'Товары', categories:'Категории', menu:'Боковое меню', orders:'Заказы', questions:'Вопросы', reviews:'Отзывы', promos:'Промокоды', loyalty:'Баллы покупателей' };
 
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.onclick = async () => {
@@ -818,12 +882,14 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     currentTab = btn.dataset.tab;
-    document.getElementById('addBtn').style.display = (currentTab === 'products' || currentTab === 'promos' || currentTab === 'categories') ? 'flex' : 'none';
+    document.getElementById('addBtn').style.display = (currentTab === 'products' || currentTab === 'promos' || currentTab === 'categories' || currentTab === 'menu') ? 'flex' : 'none';
     document.getElementById('viewTitle').textContent = TAB_TITLES[currentTab] || '';
     if (currentTab === 'products'){
       await loadProducts();
     } else if (currentTab === 'categories'){
       try { await loadCategories(); } catch(e){ showToast(e.message); }
+    } else if (currentTab === 'menu'){
+      try { await loadCategories(); await loadMenu(); } catch(e){ showToast(e.message); }
     } else if (currentTab === 'orders'){
       await loadOrders();
       renderOrders();
@@ -1628,6 +1694,7 @@ document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id
 document.getElementById('addBtn').onclick = () => {
   if (currentTab === 'promos') openPromoModal(null);
   else if (currentTab === 'categories') openCatModal(null, null);
+  else if (currentTab === 'menu') openMenuModal(null);
   else openModal(null);
 };
 
@@ -1882,6 +1949,177 @@ function renderCatSelects(){
     renderCatSelects();
   });
 }
+
+// --- Боковое меню магазина --------------------------------------------
+const MI_ICON = { category: '📦', sale: '🔥', link: '🔗' };
+const MI_TYPE_NAME = { category: 'раздел', sale: 'распродажа', link: 'ссылка' };
+
+async function loadMenu(){
+  menuCfg = await api('/api/admin/menu');
+  if (currentTab === 'menu') renderMenuTab();
+  return menuCfg;
+}
+
+async function saveMenu(okMsg){
+  const body = JSON.stringify({
+    title: menuCfg.title, all_label: menuCfg.all_label, show_points: menuCfg.show_points,
+    items: menuCfg.items.map(({count, ...rest}) => rest)
+  });
+  menuCfg = await api('/api/admin/menu', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body });
+  if (okMsg) showToast(okMsg);
+  if (currentTab === 'menu') renderMenuTab();
+}
+
+function miSummary(it){
+  if (it.type === 'sale') return 'собирается автоматически: товары со скидкой';
+  if (it.type === 'link') return it.url;
+  const names = (it.cat_ids || []).map(id => (categories.find(c => c.id === id) || {}).name).filter(Boolean);
+  return names.length ? names.join(', ') : 'категории не выбраны — раздел пустой';
+}
+
+function renderMenuTab(){
+  const list = document.getElementById('list');
+  document.getElementById('countLabel').textContent = `${menuCfg.items.length} пунктов в меню`;
+  const rows = menuCfg.items.map((it, i) => `
+    <div class="mi-row ${it.visible ? '' : 'off'}">
+      <div class="mi-top">
+        <span class="mi-ico">${it.type === 'link' && it.icon ? escCat(it.icon) : MI_ICON[it.type]}</span>
+        <div class="mi-main">
+          <div class="mi-name">${escCat(it.label)}</div>
+          <div class="mi-sub">${MI_TYPE_NAME[it.type]}${it.visible ? '' : ' · скрыт'} · ${escCat(miSummary(it))}</div>
+        </div>
+        ${it.count != null ? `<div class="mi-count">${it.count} тов.</div>` : ''}
+      </div>
+      <div class="mi-actions">
+        <button class="cat-btn" data-mi-up="${i}" title="Выше" ${i === 0 ? 'disabled' : ''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+        <button class="cat-btn" data-mi-down="${i}" title="Ниже" ${i === menuCfg.items.length - 1 ? 'disabled' : ''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+        <button class="cat-btn ${it.visible ? 'on' : ''}" data-mi-eye="${i}" title="${it.visible ? 'Скрыть из меню' : 'Показать в меню'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${it.visible ? '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>' : '<path d="M3 3l18 18"/><path d="M10.6 6.1A9.8 9.8 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.9C3.7 8.7 2 12 2 12s4 7 10 7a9.7 9.7 0 0 0 4-.9"/>'}</svg></button>
+        <button class="cat-btn" data-mi-edit="${i}" title="Изменить"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+        <button class="cat-btn del" data-mi-del="${i}" title="Удалить"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg></button>
+      </div>
+    </div>`).join('');
+
+  list.innerHTML = `
+    <div class="set-card">
+      <label>Заголовок меню</label>
+      <input type="text" id="mTitle" maxlength="40" value="${escCat(menuCfg.title)}">
+      <label>Первый пункт (сбрасывает фильтр)</label>
+      <input type="text" id="mAll" maxlength="40" value="${escCat(menuCfg.all_label)}">
+      <label>Карточка «Мои баллы» вверху меню</label>
+      <div class="badge-picker" id="mPoints">
+        <button type="button" class="badge-opt ${menuCfg.show_points ? 'active' : ''}" data-v="1">Показывать</button>
+        <button type="button" class="badge-opt ${menuCfg.show_points ? '' : 'active'}" data-v="0">Скрыть</button>
+      </div>
+    </div>
+    ${menuCfg.items.length ? `<div class="cat-tree">${rows}</div>` : '<div class="empty">В меню пока нет пунктов — нажмите «+».</div>'}
+    <div class="muted" style="margin-top:12px;line-height:1.6;">Разделы и «Распродажа» идут списком в заданном порядке, ссылки показываются карточками под списком. Покупатели видят изменения в течение минуты.</div>`;
+
+  const upd = (el, key) => el.onchange = async () => {
+    menuCfg[key] = el.value.trim() || (key === 'title' ? 'Каталог товаров' : 'Все товары');
+    try { await saveMenu('Сохранено'); } catch(e){ showToast(e.message); }
+  };
+  upd(document.getElementById('mTitle'), 'title');
+  upd(document.getElementById('mAll'), 'all_label');
+  list.querySelectorAll('#mPoints .badge-opt').forEach(b => b.onclick = async () => {
+    menuCfg.show_points = b.dataset.v === '1';
+    try { await saveMenu('Сохранено'); } catch(e){ showToast(e.message); }
+  });
+  const act = (attr, fn) => list.querySelectorAll(`[${attr}]`).forEach(b => b.onclick = async () => {
+    try { await fn(Number(b.getAttribute(attr))); } catch(e){ showToast(e.message); await loadMenu().catch(() => {}); }
+  });
+  const move = async (i, d) => {
+    const j = i + d; if (j < 0 || j >= menuCfg.items.length) return;
+    [menuCfg.items[i], menuCfg.items[j]] = [menuCfg.items[j], menuCfg.items[i]];
+    await saveMenu();
+  };
+  act('data-mi-up', i => move(i, -1));
+  act('data-mi-down', i => move(i, 1));
+  act('data-mi-eye', async i => { menuCfg.items[i].visible = !menuCfg.items[i].visible; await saveMenu(menuCfg.items[i].visible ? 'Пункт показан' : 'Пункт скрыт'); });
+  act('data-mi-edit', async i => openMenuModal(menuCfg.items[i].id));
+  act('data-mi-del', async i => {
+    if (!confirm(`Удалить пункт «${menuCfg.items[i].label}» из меню?`)) return;
+    menuCfg.items.splice(i, 1);
+    await saveMenu('Пункт удалён');
+  });
+}
+
+function setMiType(t){
+  miType = t;
+  document.querySelectorAll('#miTypePicker .badge-opt').forEach(b => b.classList.toggle('active', b.dataset.type === t));
+  document.getElementById('miCatBlock').style.display = t === 'category' ? '' : 'none';
+  document.getElementById('miSaleBlock').style.display = t === 'sale' ? '' : 'none';
+  document.getElementById('miLinkBlock').style.display = t === 'link' ? '' : 'none';
+  const lbl = document.getElementById('miLabel');
+  if (!editingMenuId && !lbl.value.trim()) lbl.placeholder = t === 'sale' ? 'РАСПРОДАЖА' : (t === 'link' ? 'Отзывы' : 'Всё для вейпа');
+}
+document.querySelectorAll('#miTypePicker .badge-opt').forEach(b => b.onclick = () => setMiType(b.dataset.type));
+
+function renderMiCats(){
+  const box = document.getElementById('miCats');
+  const flat = catFlat(null);
+  if (!flat.length){ box.innerHTML = '<div class="muted" style="padding:12px;">Категорий пока нет — создайте их во вкладке «Категории».</div>'; return; }
+  box.innerHTML = flat.map(({cat, depth}) =>
+    `<div class="chk-row ${miSel.has(cat.id) ? 'on' : ''}" data-id="${cat.id}" style="padding-left:${12 + depth * 20}px"><span class="chk-box">✓</span><span>${depth ? '↳ ' : ''}${escCat(cat.name)}</span></div>`
+  ).join('');
+  box.querySelectorAll('.chk-row').forEach(r => r.onclick = () => {
+    const id = Number(r.dataset.id);
+    miSel.has(id) ? miSel.delete(id) : miSel.add(id);
+    r.classList.toggle('on', miSel.has(id));
+  });
+}
+
+function openMenuModal(id){
+  editingMenuId = id || null;
+  const it = id ? menuCfg.items.find(x => x.id === id) : null;
+  document.getElementById('miError').textContent = '';
+  document.getElementById('miModalTitle').textContent = it ? 'Изменить пункт' : 'Новый пункт меню';
+  document.getElementById('miModalSub').textContent = it ? it.label : 'пункт появится в боковом меню магазина';
+  document.getElementById('miTypeWrap').style.display = it ? 'none' : '';
+  document.getElementById('miLabel').value = it ? it.label : '';
+  document.getElementById('miUrl').value = it?.url || '';
+  document.getElementById('miIcon').value = it?.icon || '';
+  miSel = new Set(it?.cat_ids || []);
+  setMiType(it ? it.type : 'category');
+  renderMiCats();
+  document.getElementById('menuOverlay').classList.add('open');
+}
+function closeMenuModal(){ document.getElementById('menuOverlay').classList.remove('open'); }
+document.getElementById('miCancelBtn').onclick = closeMenuModal;
+document.getElementById('menuOverlay').addEventListener('click', e => { if (e.target.id === 'menuOverlay') closeMenuModal(); });
+
+document.getElementById('miSaveBtn').onclick = async () => {
+  const label = document.getElementById('miLabel').value.trim();
+  const err = document.getElementById('miError');
+  err.textContent = '';
+  if (!label){ err.textContent = 'Введите название пункта'; return; }
+  const item = { type: miType, label, visible: true };
+  if (miType === 'category'){
+    if (!miSel.size){ err.textContent = 'Отметьте хотя бы одну категорию'; return; }
+    item.cat_ids = [...miSel];
+  } else if (miType === 'link'){
+    item.url = document.getElementById('miUrl').value.trim();
+    item.icon = document.getElementById('miIcon').value.trim();
+    if (!item.url){ err.textContent = 'Укажите ссылку'; return; }
+  }
+  const btn = document.getElementById('miSaveBtn');
+  btn.disabled = true;
+  try {
+    if (editingMenuId){
+      const old = menuCfg.items.find(x => x.id === editingMenuId);
+      const { visible, ...changes } = item;      // скрытый пункт остаётся скрытым
+      Object.assign(old, changes);
+    } else {
+      menuCfg.items.push(item);
+    }
+    await saveMenu(editingMenuId ? 'Пункт обновлён' : 'Пункт добавлен');
+    closeMenuModal();
+  } catch(e){
+    err.textContent = e.message;
+    await loadMenu().catch(() => {});
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 // --- Init ------------------------------------------------------------
 
