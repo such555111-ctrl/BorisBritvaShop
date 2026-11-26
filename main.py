@@ -1259,7 +1259,7 @@ def on_order_moderation(call: types.CallbackQuery):
 
 # --- Меню бота: сценарий /start (текст — «круглые» блоки схемы, кнопки — «квадратные») ----------
 # Ссылка на «Подробно о методах доставки» (Telegraph). Пока не задана — в тексте остаётся обычная строка.
-DELIVERY_INFO_URL = (os.environ.get("DELIVERY_INFO_URL") or "").strip()
+DELIVERY_INFO_URL = (os.environ.get("DELIVERY_INFO_URL") or "https://telegra.ph/Podrobno-o-dostavke-11-26").strip()
 
 
 def _nav_texts():
