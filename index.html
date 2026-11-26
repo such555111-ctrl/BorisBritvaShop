@@ -1463,8 +1463,8 @@
   <div class="sheet-inner">
     <div class="pd-name" style="margin-top:4px;">Оформление заказа</div>
 
-    <div class="label" style="margin-top:18px;">Имя</div>
-    <input type="text" id="coName" class="text-input" placeholder="Как к вам обращаться">
+    <div class="label" style="margin-top:18px;">Telegram</div>
+    <input type="text" id="coName" class="text-input" placeholder="@username" autocapitalize="off" autocomplete="off" spellcheck="false">
 
     <div class="label" style="margin-top:15px;">Телефон</div>
     <input type="tel" id="coPhone" class="text-input" placeholder="+7 900 000-00-00">
@@ -1599,8 +1599,7 @@ function deliveryFeeFor(goods){ return (FREE_DELIVERY_FROM > 0 && goods >= FREE_
 let PICKUP_POINTS = ['Казань (личная доставка)'];
 let PERSONAL_DELIVERY_MIN = 3000; // личная доставка доступна от этой суммы товаров
 let SHOP_CONTACT = 'britvaboris1'; // Telegram-аккаунт менеджера (без @); сервер может переопределить через SHOP_CONTACT
-const fmt = n => (Number.isInteger(n) ? n.toLocaleString('ru-RU')
-  : n.toLocaleString('ru-RU', { minimumFractionDigits:2, maximumFractionDigits:2 })) + ' ₽';
+const fmt = n => Math.round(Number(n)).toLocaleString('ru-RU') + ' ₽';
 const BADGE_LABELS = { hit:'Хит', trend:'В тренде', sale:'Скидка', instock:'В наличии' };
 const priceHTML = p => (p.old_price && p.old_price > p.price)
   ? `<span class="price-old">${fmt(p.old_price)}</span><span class="price-new">${fmt(p.price)}</span>`
@@ -1821,7 +1820,7 @@ function renderSubFilters(){
   const cnt = s => PRODUCTS.filter(p => p.category === activeCategory && inSub(p, s)).length;
   const all = PRODUCTS.filter(p => p.category === activeCategory).length;
   el.innerHTML = ['Все', ...subs].map((s,i) =>
-    `<button class="subchip ${s===activeSub?'active':''}" data-sub="${s}" style="animation-delay:${i*35}ms">${s==='Все'?'Все':s}<em>${s==='Все'?all:cnt(s)}</em></button>`
+    `<button class="subchip ${s===activeSub?'active':''}" data-sub="${s}" style="animation-delay:${i*35}ms">${s==='Все'?'Все':s}</button>`
   ).join('');
   renderDeepFilters();
 }
@@ -1858,7 +1857,7 @@ function renderDeepFilters(){
     const cnt = n => inPrefix.filter(p => pth(p)[prefix.length] === n).length;
     html += `<div class="subfilters" data-deep="${i}">` +
       ['Все', ...names].map((n, k) =>
-        `<button class="subchip ${n===cur?'active':''}" data-name="${escHtml(n)}" style="animation-delay:${k*35}ms">${n==='Все'?'Все':escHtml(n)}<em>${n==='Все'?inPrefix.length:cnt(n)}</em></button>`
+        `<button class="subchip ${n===cur?'active':''}" data-name="${escHtml(n)}" style="animation-delay:${k*35}ms">${n==='Все'?'Все':escHtml(n)}</button>`
       ).join('') + `</div>`;
     if (cur === 'Все') break;
     prefix.push(cur);
@@ -1934,7 +1933,7 @@ function stockInfo(p, size){
 const inStock = p => { const st = stockInfo(p); return !st || st.n > 0; };
 const cartQtyOf = (id, size) => cart.filter(i => i.id === id && (size === undefined || i.size === size)).reduce((s,i) => s + i.qty, 0);
 
-const fmtMoney2 = n => Number(n).toLocaleString('ru-RU', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const fmtMoney2 = n => Math.round(Number(n)).toLocaleString('ru-RU');
 
 // Компактная карточка-строка: миниатюра | название, бренд, артикул, цена, остаток | кнопка [ + ]
 function cardHTML(p, i){
@@ -2805,6 +2804,9 @@ function deliveryLine(d){
 document.getElementById('checkoutBtn').onclick = () => {
   if (cart.length===0) return;
   document.getElementById('coError').textContent = '';
+  const _nm = document.getElementById('coName');
+  const _tgUn = tg?.initDataUnsafe?.user?.username;
+  if (_nm && !_nm.value.trim() && _tgUn) _nm.value = '@' + _tgUn;     // подставляем юзернейм из Telegram
   renderCheckoutOpts();
   openSheet('checkoutSheet');
 };
@@ -2812,16 +2814,16 @@ document.getElementById('checkoutBtn').onclick = () => {
 async function submitOrder(){
   const nameEl = document.getElementById('coName');
   const phoneEl = document.getElementById('coPhone');
-  const name = nameEl.value.trim();
+  let name = nameEl.value.trim().replace(/^https?:\/\/t\.me\//i, '').replace(/^@+/, '');
   const phone = phoneEl.value.trim();
   const comment = document.getElementById('coComment').value.trim();
   const errEl = document.getElementById('coError');
   errEl.textContent = '';
   nameEl.classList.remove('err'); phoneEl.classList.remove('err');
 
-  if (!name || !phone){
-    errEl.textContent = 'Укажите имя и телефон';
-    if (!name) nameEl.classList.add('err');
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(name) || !phone){
+    errEl.textContent = !phone && /^[A-Za-z0-9_]{5,32}$/.test(name) ? 'Укажите телефон' : 'Укажите Telegram-юзернейм (например @username) и телефон';
+    if (!/^[A-Za-z0-9_]{5,32}$/.test(name)) nameEl.classList.add('err');
     if (!phone) phoneEl.classList.add('err');
     if (tg) tg.HapticFeedback?.notificationOccurred('error');
     return;
@@ -2830,6 +2832,7 @@ async function submitOrder(){
     errEl.textContent = 'Корзина пуста';
     return;
   }
+  name = '@' + name;
 
   const addrEl = document.getElementById('coAddress');
   const dateEl = document.getElementById('coDate');
@@ -2911,7 +2914,7 @@ async function submitOrder(){
     document.getElementById('coName').value = '';
     document.getElementById('coPhone').value = '';
     document.getElementById('coComment').value = '';
-    addrEl.value = ''; timeEl.value = ''; shipEl.value = '';
+    addrEl.value = ''; shipEl.value = '';
     coState.when = 'asap'; coState.mode = 'pickup'; renderCheckoutOpts();
     openSheet('successSheet');
     showToast('Заказ отправлен на обработку', 'success');
@@ -3699,7 +3702,7 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
       html += `<button class="nav-back" type="button" data-nav="back">${CHEV_L}Назад</button>` +
         `<button class="nav-all${isCur(node) ? ' current' : ''}" type="button" data-nav="all">` +
           `<span class="nav-txt"><b>${escHtml(node.label)}</b><small>Все товары категории</small></span>` +
-          `<em>${node.count}</em></button>`;
+          `</button>`;
     }
     html += '<ul class="cat-list">';
     if (!node){
@@ -3709,7 +3712,6 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
       `<li class="cat-item${n.sale ? ' cat-sale' : ''}"><button class="cat-link${isCur(n) && !n.kids.length ? ' current' : ''}" type="button" data-i="${i}">` +
         `<span class="cat-name">${escHtml(n.label)}</span>` +
         (n.sale ? '<span class="cat-badge">HOT</span>' : '') +
-        (node ? `<span class="cnt">${n.count}</span>` : '') +
         (n.kids.length ? CHEV_R : '') +
       `</button></li>`
     ).join('');

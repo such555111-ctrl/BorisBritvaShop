@@ -231,6 +231,15 @@ class LoyaltyLog(Base):
                            default=lambda: datetime.now(timezone.utc))
 
 
+class BotUser(Base):
+    """Все, кто хоть раз писал боту / нажимал кнопки — для рассылки."""
+    __tablename__ = "bot_users"
+    id          = Column(Integer, primary_key=True)
+    telegram_id = Column(BigInteger, nullable=False, unique=True, index=True)
+    created_at  = Column(DateTime(timezone=True), nullable=False,
+                         default=lambda: datetime.now(timezone.utc))
+
+
 # Отдельная фабрика сессий для данных магазина (не мешает сессиям отзывов).
 DocSession = sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -1243,20 +1252,7 @@ def on_order_moderation(call: types.CallbackQuery):
 
     bot.answer_callback_query(call.id, "Готово")
     finish("✅ Заказ принят" if accepted else "❌ Заказ отклонён")
-    chat_id = order.get("customer_chat_id")
-    if chat_id:
-        try:
-            if accepted:
-                cb = int(order.get("cashback") or 0)
-                bot.send_message(chat_id, f"✅ Ваш заказ BB-{oid} принят!\n\nМы свяжемся с вами в этом чате."
-                                 + (f"\nНачислен кешбэк: {cb} б." if cb else ""))
-            else:
-                sp = int(order.get("points_spent") or 0)
-                bot.send_message(chat_id, f"❌ К сожалению, заказ BB-{oid} отклонён."
-                                 + (f"\nСписанные баллы ({sp} б.) возвращены." if sp else "")
-                                 + "\nЕсли остались вопросы — напишите менеджеру.")
-        except Exception as e:
-            log.warning("Не удалось уведомить покупателя о статусе заказа: %s", e)
+    # Покупателю после «Принять» / «Отклонить» ничего не отправляем — менеджер пишет сам.
 
 
 # --- Telegram handlers -------------------------------------------------
@@ -1319,6 +1315,7 @@ def _nav_screen(screen, user_id=None):
             kb.add(types.InlineKeyboardButton(text="Панель администратора",
                                               web_app=types.WebAppInfo(url=BASE_URL + "/admin")))
             kb.add(B("💎 Управление баллами", callback_data="pt:menu"))
+            kb.add(B("📣 Рассылка всем", callback_data="bc:start"))
     elif screen in ("new", "old"):
         kb.row(B("самовывоз", callback_data="nav:pickup"), B("доставка", callback_data="nav:delivery"))
         kb.add(B("назад", callback_data="nav:start"))
@@ -1335,8 +1332,23 @@ def _nav_screen(screen, user_id=None):
     return texts[screen], kb
 
 
+def track_user(user):
+    """Запоминаем пользователя бота (для рассылки). Ошибки не должны ломать бота."""
+    if not user or getattr(user, "is_bot", False):
+        return
+    try:
+        with DocSession() as db:
+            if db.query(BotUser).filter(BotUser.telegram_id == user.id).first() is None:
+                db.add(BotUser(telegram_id=user.id))
+                db.commit()
+    except Exception:
+        log.warning("Не удалось сохранить пользователя бота", exc_info=True)
+
+
 @bot.message_handler(commands=["start"])
 def cmd_start(message: types.Message):
+    track_user(message.from_user)
+    BC_STATE.pop(message.chat.id, None)
     if not BASE_URL:
         bot.send_message(
             message.chat.id,
@@ -1350,6 +1362,7 @@ def cmd_start(message: types.Message):
 
 @bot.callback_query_handler(func=lambda c: bool(c.data) and c.data.startswith("nav:"))
 def on_nav(call: types.CallbackQuery):
+    track_user(call.from_user)
     screen = call.data.split(":", 1)[1]
     if screen not in ("start", "new", "old", "pickup", "delivery", "ask") or not BASE_URL:
         bot.answer_callback_query(call.id)
@@ -1418,6 +1431,7 @@ def _pt_card_kb(tg_id):
 
 
 def pt_show_menu(chat_id):
+    BC_STATE.pop(chat_id, None)
     PT_STATE.pop(chat_id, None)
     customers = _loyalty_customers()
     total = sum(c["points_balance"] for c in customers)
@@ -1630,6 +1644,104 @@ def on_points_callback(call: types.CallbackQuery):
         bot.answer_callback_query(call.id, "Ошибка, попробуйте ещё раз", show_alert=True)
 
 
+# --- Рассылка всем пользователям бота (только для администраторов) ----------------------
+# Админ отправляет боту любое сообщение (текст, фото, видео...) — оно копируется всем.
+BC_STATE = {}          # admin chat_id -> {"step": "wait"|"confirm", "msg_id": int}
+
+
+def broadcast_recipients(exclude=()):
+    ids = set()
+    try:
+        with DocSession() as db:
+            ids.update(int(u.telegram_id) for u in db.query(BotUser).all())
+            ids.update(int(u.telegram_id) for u in db.query(LoyaltyUser).all())
+    except Exception:
+        log.exception("Не удалось получить получателей рассылки")
+    for o in load_orders():
+        try:
+            if o.get("customer_chat_id"):
+                ids.add(int(o["customer_chat_id"]))
+        except (TypeError, ValueError):
+            pass
+    ids.discard(0)
+    return sorted(i for i in ids if i not in set(exclude))
+
+
+def _bc_run(admin_chat, from_chat, msg_id, recipients):
+    import time as _time
+    sent = failed = 0
+    for rid in recipients:
+        try:
+            bot.copy_message(rid, from_chat, msg_id)
+            sent += 1
+        except Exception as e:
+            failed += 1
+            log.info("Рассылка: не доставлено %s: %s", rid, e)
+        _time.sleep(0.05)          # ~20 сообщений/сек — в пределах лимитов Telegram
+    try:
+        bot.send_message(admin_chat, f"📣 Рассылка завершена.\n✅ Доставлено: {sent}\n🚫 Не доставлено: {failed} (заблокировали бота или удалили чат)")
+    except Exception:
+        log.warning("Не удалось отправить итог рассылки", exc_info=True)
+
+
+def bc_ask(chat_id):
+    PT_STATE.pop(chat_id, None)
+    BC_STATE[chat_id] = {"step": "wait"}
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Отмена", callback_data="bc:cancel"))
+    bot.send_message(chat_id, "📣 Рассылка всем пользователям бота.\n\nОтправьте сообщение, которое нужно разослать "
+                              "(текст, фото, видео — как есть). Перед отправкой я покажу предпросмотр.", reply_markup=kb)
+
+
+@bot.message_handler(commands=["broadcast", "send_all"], func=lambda m: _is_admin(m.from_user))
+def cmd_broadcast(message: types.Message):
+    bc_ask(message.chat.id)
+
+
+@bot.message_handler(content_types=["text", "photo", "video", "document", "animation", "audio", "voice"],
+                     func=lambda m: _is_admin(m.from_user) and (BC_STATE.get(m.chat.id) or {}).get("step") == "wait"
+                     and not (m.text or "").startswith("/"))
+def on_broadcast_message(message: types.Message):
+    chat_id = message.chat.id
+    n = len(broadcast_recipients(exclude=(chat_id,)))
+    BC_STATE[chat_id] = {"step": "confirm", "msg_id": message.message_id}
+    kb = types.InlineKeyboardMarkup()
+    kb.row(types.InlineKeyboardButton(f"✅ Отправить ({n})", callback_data="bc:go"),
+           types.InlineKeyboardButton("✖️ Отмена", callback_data="bc:cancel"))
+    bot.send_message(chat_id, f"Так сообщение увидят пользователи (выше). Получателей: {n}.\nОтправляем?",
+                     reply_to_message_id=message.message_id, reply_markup=kb)
+
+
+@bot.callback_query_handler(func=lambda c: bool(c.data) and c.data.startswith("bc:"))
+def on_broadcast_callback(call: types.CallbackQuery):
+    if not _is_admin(call.from_user):
+        bot.answer_callback_query(call.id, "Нет доступа", show_alert=True)
+        return
+    chat_id = call.message.chat.id
+    action = call.data.split(":", 1)[1]
+    if action == "start":
+        bot.answer_callback_query(call.id)
+        bc_ask(chat_id)
+    elif action == "cancel":
+        BC_STATE.pop(chat_id, None)
+        bot.answer_callback_query(call.id, "Отменено")
+    elif action == "go":
+        st = BC_STATE.pop(chat_id, None)
+        if not st or st.get("step") != "confirm":
+            bot.answer_callback_query(call.id, "Действие устарело. Начните заново: /broadcast", show_alert=True)
+            return
+        recipients = broadcast_recipients(exclude=(chat_id,))
+        bot.answer_callback_query(call.id, "Отправляю…")
+        try:
+            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
+        except Exception:
+            pass
+        bot.send_message(chat_id, f"⏳ Рассылка запущена: {len(recipients)} получателей.")
+        threading.Thread(target=_bc_run, args=(chat_id, chat_id, st["msg_id"], recipients), daemon=True).start()
+    else:
+        bot.answer_callback_query(call.id)
+
+
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def fallback(message: types.Message):
     cmd_start(message)
@@ -1775,8 +1887,10 @@ def create_order():
     comment = (data.get("comment") or "").strip()
     items = data.get("items") or []
 
-    if not name or not phone:
-        abort(400, description="Укажите имя и телефон")
+    name = name.lstrip("@").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", name) or not phone:
+        abort(400, description="Укажите Telegram-юзернейм и телефон")
+    name = "@" + name
     if not isinstance(items, list) or not items:
         abort(400, description="Корзина пуста")
     for it in items:
@@ -1932,7 +2046,7 @@ def create_order():
                 f"{fee_line}"
                 f"{loyalty_line}"
                 f"Итого: {fmt_price(total)}\n\n"
-                "Заказ в обработке. Как только менеджер его примет, мы сообщим вам в этом чате."
+                "Заказ в обработке. Менеджер свяжется с вами."
             )
         except Exception as e:
             log.warning("Не удалось отправить подтверждение покупателю: %s", e)
@@ -1941,7 +2055,7 @@ def create_order():
         f"🛒 Новый заказ BB-{new_id}\n\n"
         f"Клиент: {name}\n"
         f"Телефон: {phone}\n"
-        + (f"Telegram: @{customer_username}\n" if customer_username else "")
+        + (f"Telegram-аккаунт: @{customer_username}\n" if customer_username and ("@" + customer_username).lower() != name.lower() else "")
         + f"\n{admin_items_lines}\n\n"
         f"{delivery_block}\n\n"
         f"{discount_line}"
