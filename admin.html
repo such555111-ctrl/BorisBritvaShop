@@ -941,7 +941,7 @@ function renderOrders(){
         <span class="status-badge status-${o.status}">${statusLabel(o.status)}</span>
       </div>
       <div class="order-items">${(o.items||[]).map(i=>`${i.name} (${i.size||'—'}) × ${i.qty}`).join('<br>')}</div>
-      ${o.delivery ? `<div class="card-sub" style="color:var(--text);line-height:1.7;">${o.delivery.mode==='delivery' ? '🚚 Доставка: '+(o.delivery.address||'—')+' (+'+fmt(o.delivery.fee||0)+')' : '📍 Самовывоз: '+(o.delivery.point||'—')}<br>${o.delivery.asap ? '⚡ Как можно скорее' : '🕒 '+(o.delivery.date||'').split('-').reverse().slice(0,2).join('.')+' в '+(o.delivery.time||'')}</div>` : ''}
+      ${o.delivery ? `<div class="card-sub" style="color:var(--text);line-height:1.7;">${o.delivery.mode==='delivery' ? '🚚 Личная доставка: '+(o.delivery.address||'—')+' (+'+fmt(o.delivery.fee||0)+')' : o.delivery.mode==='fivepost' ? '📦 5Post: '+(o.delivery.address||'—') : o.delivery.mode==='cdek' ? '🚛 СДЭК: '+(o.delivery.address||'—') : '📍 Самовывоз: '+(o.delivery.point||'—')}${(o.delivery.mode==='fivepost'||o.delivery.mode==='cdek') ? '' : '<br>'+(o.delivery.asap ? '⚡ Как можно скорее' : '🕒 '+(o.delivery.date||'').split('-').reverse().slice(0,2).join('.')+' в '+(o.delivery.time||''))}</div>` : ''}
       ${o.discount ? `<div class="card-sub">Промокод: ${o.promo_code} (−${fmt(o.discount)}) · Сумма товаров: ${fmt(o.subtotal)}</div>` : ''}
       <div class="card-sub">Итого: ${fmt(o.total)}</div>
       <div class="order-contact">

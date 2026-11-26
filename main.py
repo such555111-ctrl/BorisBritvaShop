@@ -71,6 +71,17 @@ def delivery_fee_for(goods_total):
     return DELIVERY_FEE
 
 
+# Личная доставка доступна от этой суммы товаров (после промокода, до списания баллов).
+try:
+    PERSONAL_DELIVERY_MIN = int(os.environ.get("PERSONAL_DELIVERY_MIN", "3000"))
+except ValueError:
+    PERSONAL_DELIVERY_MIN = 3000
+
+SHIPPING_MODES = {"fivepost": "5Post", "cdek": "СДЭК"}   # отправка по России, стоимость считает менеджер
+
+# Отзывы покупателей ведутся в Telegram-канале (в приложении отзывы не собираются).
+REVIEWS_URL = os.environ.get("REVIEWS_URL", "https://t.me/+VG4k8-hxZ5wxNGUy")
+
 PICKUP_POINTS = [
     p.strip() for p in (os.environ.get("PICKUP_POINTS") or "Казань (личная доставка)").split(",") if p.strip()
 ]
@@ -490,65 +501,9 @@ def get_reviews():
 
 @app.route("/api/reviews", methods=["POST"])
 def create_review():
-    data = request.get_json(force=True, silent=True) or {}
+    # Приём отзывов отключён: отзывы теперь в Telegram-канале.
+    return jsonify({"error": "Отзывы принимаются в Telegram-канале", "url": REVIEWS_URL}), 410
 
-    try:
-        telegram_id = int(data.get("telegram_id"))
-        if telegram_id <= 0:
-            raise ValueError
-    except (TypeError, ValueError):
-        abort(400, description="Не удалось определить Telegram-аккаунт")
-
-    author_name = " ".join(str(data.get("author_name") or "").split())[:REVIEW_MAX_NAME]
-    text = str(data.get("text") or "").strip()
-    username = re.sub(r"[^A-Za-z0-9_]", "", str(data.get("username") or "").lstrip("@"))[:64]
-    if not author_name:
-        abort(400, description="Не указано имя автора")
-    if not text:
-        abort(400, description="Напишите текст отзыва")
-    if len(text) > REVIEW_MAX_TEXT:
-        abort(400, description=f"Отзыв слишком длинный (максимум {REVIEW_MAX_TEXT} символов)")
-
-    raw_rating = data.get("rating")
-    try:
-        if isinstance(raw_rating, bool):
-            raise ValueError
-        rating = int(raw_rating)
-    except (TypeError, ValueError):
-        abort(400, description="Поставьте оценку от 1 до 5")
-    if not 1 <= rating <= 5:
-        abort(400, description="Оценка должна быть от 1 до 5")
-
-    db = SessionLocal()
-    try:
-        pending = (
-            db.query(func.count(Review.id))
-            .filter(Review.telegram_id == telegram_id, Review.is_approved.is_(False))
-            .scalar()
-        )
-        if pending >= REVIEW_MAX_PENDING:
-            return jsonify({"error": "Ваши прошлые отзывы ещё на модерации — подождите немного"}), 429
-
-        review = Review(
-            telegram_id=telegram_id,
-            author_name=author_name,
-            rating=rating,
-            text=text,
-            is_approved=False,          # виден только после одобрения админом
-        )
-        db.add(review)
-        db.commit()
-        review_id = review.id
-    except Exception:
-        db.rollback()
-        log.exception("Не удалось сохранить отзыв")
-        return jsonify({"error": "Не удалось сохранить отзыв"}), 500
-
-    notify_admins_new_review(review_id, author_name, username, telegram_id, rating, text)
-    return jsonify({"ok": True, "review_id": review_id, "status": "pending"}), 201
-
-
-# --- Админ-панель: все отзывы и удаление --------------------------------
 
 @app.route("/api/admin/reviews", methods=["GET"])
 def admin_get_reviews():
@@ -1065,6 +1020,8 @@ def cmd_start(message: types.Message):
             )
         )
 
+    keyboard.add(types.InlineKeyboardButton(text="⭐ Отзывы", url=REVIEWS_URL))
+
     is_admin = bool(message.from_user) and message.from_user.id in ADMIN_CHAT_IDS
     if is_admin:
         keyboard.add(
@@ -1073,6 +1030,7 @@ def cmd_start(message: types.Message):
                 web_app=types.WebAppInfo(url=BASE_URL + "/admin")
             )
         )
+        keyboard.add(types.InlineKeyboardButton(text="💎 Управление баллами", callback_data="pt:menu"))
 
     bot.send_message(
         message.chat.id,
@@ -1086,6 +1044,269 @@ def cmd_start(message: types.Message):
         parse_mode="Markdown",
     )
 
+
+
+# --- Управление баллами прямо в боте (только для администраторов) ------------
+# Состояние диалога хранится в памяти (воркер один). После перезапуска сервера
+# незавершённое действие просто нужно начать заново.
+PT_STATE = {}          # admin_id -> {"step": "find"|"amount", "act": ..., "tg": ..., "pending": {...}}
+PT_ACT_TITLE = {"add": "➕ Начислить", "subtract": "➖ Списать", "set": "🎯 Установить баланс", "reset": "♻️ Обнулить"}
+
+
+def _is_admin(user):
+    return bool(user) and user.id in ADMIN_CHAT_IDS
+
+
+def _pt_customer(tg_id):
+    """Карточка покупателя (баланс, имя, заказы). Если записи нет — баланс 0."""
+    for c in _loyalty_customers():
+        if c["telegram_id"] == tg_id:
+            return c
+    return {"telegram_id": tg_id, "points_balance": loyalty_get(tg_id)["points_balance"], "total_spent": 0,
+            "name": "", "username": "", "phone": "", "orders": 0, "reserved": 0, "last_order": None}
+
+
+def _pt_title(c):
+    who = c.get("name") or "Без имени"
+    if c.get("username"):
+        who += f" (@{c['username']})"
+    return who
+
+
+def _pt_card_text(c):
+    rub = fmt_price(c["points_balance"] * POINT_VALUE)
+    lines = [f"👤 {_pt_title(c)}", f"ID: {c['telegram_id']}"]
+    if c.get("phone"):
+        lines.append(f"Телефон: {c['phone']}")
+    lines.append(f"\n💎 Баланс: {c['points_balance']} б. ({rub})")
+    if c.get("reserved"):
+        lines.append(f"⏳ В резерве по заказам: {c['reserved']} б.")
+    lines.append(f"🛒 Заказов: {c.get('orders', 0)} · Потрачено: {fmt_price(c.get('total_spent', 0))}")
+    return "\n".join(lines)
+
+
+def _pt_card_kb(tg_id):
+    kb = types.InlineKeyboardMarkup()
+    kb.row(types.InlineKeyboardButton("➕ Начислить", callback_data=f"pt:a:add:{tg_id}"),
+           types.InlineKeyboardButton("➖ Списать", callback_data=f"pt:a:subtract:{tg_id}"))
+    kb.row(types.InlineKeyboardButton("🎯 Установить", callback_data=f"pt:a:set:{tg_id}"),
+           types.InlineKeyboardButton("♻️ Обнулить", callback_data=f"pt:a:reset:{tg_id}"))
+    kb.row(types.InlineKeyboardButton("📜 История", callback_data=f"pt:h:{tg_id}"),
+           types.InlineKeyboardButton("⬅️ К списку", callback_data="pt:menu"))
+    return kb
+
+
+def pt_show_menu(chat_id):
+    PT_STATE.pop(chat_id, None)
+    customers = _loyalty_customers()
+    total = sum(c["points_balance"] for c in customers)
+    with_pts = sum(1 for c in customers if c["points_balance"] > 0)
+    text = (f"💎 Баллы покупателей\n\nУ клиентов: {total} б. ({fmt_price(total * POINT_VALUE)})\n"
+            f"Клиентов с баллами: {with_pts}\n\nВыберите клиента или найдите по ID, @username, имени или телефону.")
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔎 Найти клиента", callback_data="pt:find"))
+    for c in customers[:10]:
+        label = f"{_pt_title(c)} — {c['points_balance']} б."
+        kb.add(types.InlineKeyboardButton(label[:60], callback_data=f"pt:c:{c['telegram_id']}"))
+    bot.send_message(chat_id, text, reply_markup=kb)
+
+
+def pt_show_customer(chat_id, tg_id):
+    PT_STATE.pop(chat_id, None)
+    bot.send_message(chat_id, _pt_card_text(_pt_customer(tg_id)), reply_markup=_pt_card_kb(tg_id))
+
+
+def _pt_find(query):
+    q = query.strip().lstrip("@").lower()
+    if not q:
+        return []
+    digits = re.sub(r"\D", "", q)
+    found = []
+    for c in _loyalty_customers():
+        phone = re.sub(r"\D", "", c.get("phone") or "")
+        if (str(c["telegram_id"]) == q
+                or (c.get("username") or "").lower() == q
+                or q in (c.get("name") or "").lower()
+                or (digits and len(digits) >= 4 and digits in phone)):
+            found.append(c)
+    return found
+
+
+@bot.message_handler(commands=["points", "balls"], func=lambda m: _is_admin(m.from_user))
+def cmd_points(message: types.Message):
+    arg = (message.text or "").split(maxsplit=1)
+    if len(arg) > 1:
+        _pt_handle_search(message.chat.id, arg[1])
+    else:
+        pt_show_menu(message.chat.id)
+
+
+def _pt_handle_search(chat_id, query):
+    found = _pt_find(query)
+    q = query.strip().lstrip("@")
+    if not found and q.isdigit() and int(q) > 0:
+        pt_show_customer(chat_id, int(q))       # клиента нет в списке, но ID задан — откроем (баланс 0)
+        return
+    if not found:
+        bot.send_message(chat_id, "Никого не нашли. Отправьте ещё раз ID, @username, имя или телефон — или /points для списка.")
+        PT_STATE[chat_id] = {"step": "find"}
+        return
+    if len(found) == 1:
+        pt_show_customer(chat_id, found[0]["telegram_id"])
+        return
+    PT_STATE.pop(chat_id, None)
+    kb = types.InlineKeyboardMarkup()
+    for c in found[:15]:
+        kb.add(types.InlineKeyboardButton(f"{_pt_title(c)} — {c['points_balance']} б."[:60],
+                                          callback_data=f"pt:c:{c['telegram_id']}"))
+    bot.send_message(chat_id, f"Найдено: {len(found)}. Выберите клиента:", reply_markup=kb)
+
+
+def _pt_parse_amount(text):
+    """'100' или '100 за отзыв' -> (100, 'за отзыв'). Ошибка -> (None, текст ошибки)."""
+    parts = (text or "").strip().split(maxsplit=1)
+    if not parts or not parts[0].isdigit():
+        return None, "Введите количество баллов целым числом, например: 100 или «100 за отзыв»"
+    amount = int(parts[0])
+    if amount > MAX_ADMIN_POINTS:
+        return None, "Слишком большое значение"
+    return amount, (parts[1].strip()[:200] if len(parts) > 1 else "")
+
+
+def _pt_confirm_kb():
+    kb = types.InlineKeyboardMarkup()
+    kb.row(types.InlineKeyboardButton("✅ Применить + уведомить клиента", callback_data="pt:ok:1"))
+    kb.row(types.InlineKeyboardButton("✅ Применить без уведомления", callback_data="pt:ok:0"))
+    kb.row(types.InlineKeyboardButton("❌ Отмена", callback_data="pt:no"))
+    return kb
+
+
+def _pt_preview(c, act, amount):
+    old = c["points_balance"]
+    new = {"add": old + amount, "subtract": max(0, old - amount), "set": amount, "reset": 0}[act]
+    return new, f"{old} → {new} б. ({new - old:+d})"
+
+
+@bot.message_handler(content_types=["text"],
+                     func=lambda m: _is_admin(m.from_user) and m.chat.id in PT_STATE and not (m.text or "").startswith("/"))
+def on_points_text(message: types.Message):
+    chat_id = message.chat.id
+    st = PT_STATE.get(chat_id) or {}
+    if st.get("step") == "find":
+        _pt_handle_search(chat_id, message.text or "")
+        return
+    if st.get("step") == "amount":
+        amount, note_or_err = _pt_parse_amount(message.text)
+        if amount is None:
+            bot.send_message(chat_id, note_or_err)
+            return
+        if amount == 0 and st["act"] in ("add", "subtract"):
+            bot.send_message(chat_id, "Количество должно быть больше нуля")
+            return
+        c = _pt_customer(st["tg"])
+        new, diff = _pt_preview(c, st["act"], amount)
+        st.update(step="confirm", amount=amount, note=note_or_err)
+        bot.send_message(chat_id,
+                         f"{PT_ACT_TITLE[st['act']]}: {amount} б.\nКлиент: {_pt_title(c)}\nБаланс: {diff}"
+                         + (f"\nКомментарий: {note_or_err}" if note_or_err else "")
+                         + "\n\nПрименить?", reply_markup=_pt_confirm_kb())
+
+
+def _pt_apply(chat_id, notify):
+    st = PT_STATE.get(chat_id)
+    if not st or st.get("step") != "confirm":
+        bot.send_message(chat_id, "Действие устарело. Откройте /points заново.")
+        return
+    act, tg_id, amount = st["act"], st["tg"], st.get("amount", 0)
+    note = st.get("note") or "Корректировка администратором"
+    try:
+        old, new = loyalty_admin_adjust(tg_id, act, amount, note)
+    except Exception:
+        log.exception("Не удалось изменить баланс баллов из бота")
+        bot.send_message(chat_id, "❌ Не удалось изменить баланс, попробуйте ещё раз.")
+        return
+    PT_STATE.pop(chat_id, None)
+    delta = new - old
+    sent = ""
+    if delta and notify:
+        text = (f"🎁 Вам начислено {delta} б. Баланс: {new} б." if delta > 0
+                else f"ℹ️ С вашего баланса списано {-delta} б. Баланс: {new} б.")
+        if st.get("note"):
+            text += f"\nПричина: {st['note']}"
+        try:
+            bot.send_message(tg_id, text)
+            sent = "\n🔔 Клиент уведомлён."
+        except Exception as e:
+            log.warning("Не удалось уведомить покупателя %s: %s", tg_id, e)
+            sent = "\n⚠️ Клиента уведомить не удалось (он не писал боту)."
+    bot.send_message(chat_id, f"✅ Готово: {old} → {new} б. ({delta:+d}){sent}")
+    pt_show_customer(chat_id, tg_id)
+
+
+@bot.callback_query_handler(func=lambda c: bool(c.data) and c.data.startswith("pt:"))
+def on_points_callback(call: types.CallbackQuery):
+    if not _is_admin(call.from_user):
+        bot.answer_callback_query(call.id, "Нет доступа", show_alert=True)
+        return
+    chat_id = call.message.chat.id
+    parts = call.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    try:
+        if action == "menu":
+            bot.answer_callback_query(call.id)
+            pt_show_menu(chat_id)
+        elif action == "find":
+            bot.answer_callback_query(call.id)
+            PT_STATE[chat_id] = {"step": "find"}
+            bot.send_message(chat_id, "Отправьте ID, @username, имя или телефон клиента.")
+        elif action == "c":
+            bot.answer_callback_query(call.id)
+            pt_show_customer(chat_id, int(parts[2]))
+        elif action == "a":
+            act, tg_id = parts[2], int(parts[3])
+            if act not in PT_ACT_TITLE:
+                raise ValueError
+            bot.answer_callback_query(call.id)
+            c = _pt_customer(tg_id)
+            if act == "reset":
+                PT_STATE[chat_id] = {"step": "confirm", "act": "reset", "tg": tg_id, "amount": 0, "note": "Обнуление баланса"}
+                _, diff = _pt_preview(c, "reset", 0)
+                bot.send_message(chat_id, f"♻️ Обнулить баллы?\nКлиент: {_pt_title(c)}\nБаланс: {diff}",
+                                 reply_markup=_pt_confirm_kb())
+            else:
+                PT_STATE[chat_id] = {"step": "amount", "act": act, "tg": tg_id}
+                hint = "новый баланс" if act == "set" else "количество баллов"
+                bot.send_message(chat_id, f"{PT_ACT_TITLE[act]} — {_pt_title(c)}\nСейчас: {c['points_balance']} б.\n\n"
+                                          f"Введите {hint}. Можно с комментарием: «100 за отзыв».\n/points — отмена.")
+        elif action == "h":
+            tg_id = int(parts[2])
+            bot.answer_callback_query(call.id)
+            with DocSession() as db:
+                rows = (db.query(LoyaltyLog).filter(LoyaltyLog.telegram_id == tg_id)
+                        .order_by(LoyaltyLog.id.desc()).limit(15).all())
+                lines = [f"{r.created_at.astimezone(timezone.utc).strftime('%d.%m %H:%M') if r.created_at else ''} "
+                         f"{r.delta:+d} → {r.balance_after} б. {r.note or ''}".strip() for r in rows]
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("⬅️ К клиенту", callback_data=f"pt:c:{tg_id}"))
+            bot.send_message(chat_id, "📜 История баллов (последние 15):\n\n" + ("\n".join(lines) or "Пока пусто"),
+                             reply_markup=kb)
+        elif action == "ok":
+            bot.answer_callback_query(call.id, "Применяю…")
+            _pt_apply(chat_id, notify=parts[2] == "1")
+        elif action == "no":
+            bot.answer_callback_query(call.id, "Отменено")
+            st = PT_STATE.pop(chat_id, None)
+            if st and st.get("tg"):
+                pt_show_customer(chat_id, st["tg"])
+            else:
+                pt_show_menu(chat_id)
+        else:
+            bot.answer_callback_query(call.id)
+    except (ValueError, IndexError):
+        bot.answer_callback_query(call.id, "Некорректные данные кнопки", show_alert=True)
+    except Exception:
+        log.exception("Ошибка в разделе баллов")
+        bot.answer_callback_query(call.id, "Ошибка, попробуйте ещё раз", show_alert=True)
 
 
 @bot.message_handler(func=lambda m: True, content_types=["text"])
@@ -1103,7 +1324,7 @@ def index():
 @app.route("/api/config", methods=["GET"])
 def public_config():
     return jsonify({"contact": SHOP_CONTACT, "delivery_fee": DELIVERY_FEE,
-                    "free_delivery_from": FREE_DELIVERY_FROM, "pickup_points": PICKUP_POINTS,
+                    "free_delivery_from": FREE_DELIVERY_FROM, "personal_delivery_min": PERSONAL_DELIVERY_MIN, "pickup_points": PICKUP_POINTS,
                     "cashback_percent": CASHBACK_PERCENT, "max_points_percent": MAX_POINTS_PERCENT,
                     "point_value": POINT_VALUE})
 
@@ -1166,8 +1387,8 @@ def parse_delivery(raw):
     """Проверяет блок доставки из заказа и возвращает (delivery, error)."""
     raw = raw if isinstance(raw, dict) else {}
     mode = raw.get("mode")
-    if mode not in ("pickup", "delivery"):
-        return None, "Выберите самовывоз или доставку"
+    if mode not in ("pickup", "delivery", "fivepost", "cdek"):
+        return None, "Выберите вид доставки"
 
     d = {"mode": mode, "point": None, "address": None, "asap": True, "date": None, "time": None, "fee": 0}
     if mode == "pickup":
@@ -1175,6 +1396,12 @@ def parse_delivery(raw):
         if point not in PICKUP_POINTS:
             return None, "Выберите пункт самовывоза"
         d["point"] = point
+    elif mode in SHIPPING_MODES:
+        address = (raw.get("address") or "").strip()
+        if len(address) < 5:
+            return None, "Укажите город и адрес пункта выдачи"
+        d["address"] = address[:300]
+        return d, None          # отправка: время не выбирается, стоимость уточнит менеджер
     else:
         address = (raw.get("address") or "").strip()
         if len(address) < 5:
@@ -1199,9 +1426,11 @@ def parse_delivery(raw):
 def delivery_text(d):
     if not isinstance(d, dict) or not d:
         return ""
+    if d.get("mode") in SHIPPING_MODES:
+        return f"📦 {SHIPPING_MODES[d['mode']]}: {d.get('address') or '—'}\n💬 Стоимость доставки рассчитать и сообщить клиенту"
     if d.get("mode") == "delivery":
         fee_txt = fmt_price(d["fee"]) if d.get("fee") else "бесплатно"
-        line = f"🚚 Доставка ({fee_txt}): {d.get('address') or '—'}"
+        line = f"🚚 Личная доставка ({fee_txt}): {d.get('address') or '—'}"
     else:
         line = f"📍 Самовывоз: {d.get('point') or '—'}"
     if d.get("asap", True):
@@ -1263,6 +1492,8 @@ def create_order():
     # --- баллы: проверяем до любых списаний ---
     goods_total = subtotal - discount                       # сумма корзины с учётом промокода
     if delivery["mode"] == "delivery":
+        if goods_total < PERSONAL_DELIVERY_MIN:
+            abort(400, description=f"Личная доставка доступна от {fmt_price(PERSONAL_DELIVERY_MIN)}")
         delivery["fee"] = delivery_fee_for(goods_total)     # бесплатно от FREE_DELIVERY_FROM
     points_to_spend = parse_points(data.get("points_to_spend"))
     if points_to_spend:

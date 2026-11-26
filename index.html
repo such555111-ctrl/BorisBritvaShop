@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Борис Бритва Шоп</title>
-<meta name="theme-color" content="#08183A">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2308183A'/%3E%3Ctext x='32' y='43' font-family='Arial Black,Arial,sans-serif' font-size='30' font-weight='900' font-style='italic' text-anchor='middle' fill='%23DCEBFF'%3ESH%3C/text%3E%3C/svg%3E">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -465,6 +465,8 @@
   .crumbs b{color:var(--accent);}
   /* ---------- оформление: самовывоз / доставка ---------- */
   .seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;}
+  .seg-btn.disabled{opacity:.45;}
+  .co-hint{margin-top:8px;font-size:12.5px;font-weight:600;color:var(--accent-soft);line-height:1.5;}
   .seg-btn{padding:12px 8px;border:1.5px solid var(--line);background:var(--bg);color:var(--muted);font-family:var(--font-heading);font-weight:800;font-size:12px;border-radius:12px;cursor:pointer;transition:all .2s var(--ease);line-height:1.3;}
   .seg-btn small{display:block;font-weight:600;font-size:10px;opacity:.8;margin-top:2px;}
   .seg-btn:active{transform:scale(.95);}
@@ -1031,37 +1033,192 @@
   .success-loy.show{display:block;}
   .success-loy b{color:var(--gold);}
   @media (prefers-reduced-motion:reduce){.loy-pill.show,.loy-block.show{animation:none;}.loy-switch,.loy-switch::after,.loy-old{transition:none;}.cart-total b.flash,.co-summary div.tot b.flash{animation:none;}}
+
+  /* =====================================================================
+     МИНИМАЛИЗМ + КРУПНЫЕ ЧИТАБЕЛЬНЫЕ НАЗВАНИЯ ВКУСОВ
+     ===================================================================== */
+  .steel-glow,.ticker-wrap,.hero,.section-title,.card-like,.card .card-meta{display:none !important;}
+  .top-contact{padding:14px 14px 0;}
+  .top-contact .hero-cta{padding:13px;font-size:13px;}
+  .logo-svg{width:84px;height:46px;filter:none;}
+  .grid,.skeleton-grid{gap:8px;padding:10px 12px;}
+
+  /* карточка товара */
+  .card{padding:10px;gap:12px;grid-template-columns:76px minmax(0,1fr) auto;}
+  .card-media{width:76px;height:76px;}
+  .card-name{
+    font-size:18px;font-weight:700;line-height:1.22;letter-spacing:0;text-transform:none;color:#fff;
+    -webkit-line-clamp:3;
+  }
+  .card-price{margin-top:6px;font-size:16px;font-weight:800;}
+  .card-stock{font-size:13px;margin-top:4px;}
+  .card.soldout .card-name,.card.soldout .card-price{opacity:.55;}
+
+  /* карточка товара (развёрнутая) */
+  .pd-name{font-size:28px;font-weight:800;text-transform:none;line-height:1.15;letter-spacing:0;margin:8px 0 8px;}
+  .pd-cat{font-size:12px;letter-spacing:.08em;}
+  .pd-desc{font-size:15px;line-height:1.6;}
+  .label{font-size:12px;letter-spacing:.1em;}
+
+  /* выбор вкуса / цвета */
+  .sizes{gap:10px;}
+  .size-btn{font-size:16px;font-weight:700;padding:13px 18px;min-width:56px;text-transform:none;letter-spacing:0;line-height:1.2;}
+
+  /* категории и серии */
+  .chip{font-size:13px;padding:11px 16px;letter-spacing:.03em;}
+  .subchip{font-size:14px;padding:9px 15px;}
+
+  /* корзина */
+  .cart-name{font-size:17px;font-weight:700;text-transform:none;line-height:1.25;color:#fff;}
+  .cart-meta{font-size:14px;margin-top:5px;}
+  .cart-remove{font-size:13px;padding:6px 0;}
+  .cart-thumb{width:64px;height:80px;}
+
+  /* мои заказы и оформление */
+  .order-items{font-size:15px;line-height:1.55;color:var(--text);}
+  .order-dlv{font-size:13.5px;}
+  .co-summary{font-size:14.5px;}
+
+  /* поиск */
+  .search-input{font-size:16px;}
+
+  /* =====================================================================
+     МИНИМАЛИЗМ: белый фон, один синий акцент, без декора
+     ===================================================================== */
+  :root{
+    --bg-primary:#FFFFFF; --bg-card:#F4F7FC; --bg-card-hover:#EAF0FA;
+    --accent-color:#2563EB; --accent-2:#2563EB; --gold:#2563EB; --blue:#2563EB; --lime:#16A34A;
+    --text-primary:#0B1B3A; --text-secondary:#5B6B8C; --border-color:#DEE6F3;
+    --muted-dim:#8A99B5; --accent-soft:#2563EB; --accent-dim:#EAF1FF; --pink-dim:#EAF1FF;
+    --line:#DEE6F3; --line-soft:#EEF2F9; --danger:#D64550; --ok:#16A34A;
+    --grad:linear-gradient(#2563EB,#2563EB);
+    --border-radius-card:14px; --border-radius-btn:12px;
+  }
+  ::selection{background:#CFE0FF;color:#0B1B3A;}
+  body::before,.card-media::before,.card-media::after,.hero-cta::after,.btn-primary::after,.noimg::before{display:none !important;content:none !important;}
+  body{background:#fff;color:var(--text);}
+
+  /* шапка */
+  header{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none;border-bottom:1px solid var(--line);box-shadow:none !important;padding-bottom:10px;}
+  .wordmark{font-family:var(--font-heading);font-weight:800;font-size:18px;letter-spacing:0;color:var(--text);margin-left:10px;white-space:nowrap;}
+  .icon-btn{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:none !important;}
+  .icon-btn:hover{border-color:var(--accent);box-shadow:none;}
+  #bagBtn{background:#2563EB;border-color:#2563EB;color:#fff;box-shadow:none !important;}
+  .icon-badge,.qa-count{background:#2563EB;color:#fff;border-color:#fff;}
+  .loy-pill,.loy-menu,.loy-block,.reviews-entry,.nav-all,.cat-sale,.rv-summary,.tip-chip{background:var(--bg-card);border:1px solid var(--line);box-shadow:none;}
+  .loy-chip,.re-badge,.reviews-entry .re-badge{background:#2563EB;color:#fff;}
+
+  /* поиск и фильтры */
+  .search-box{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:none !important;}
+  .search-box:focus-within{border-color:#2563EB;}
+  .search-tips{display:none !important;}
+  .sort-btn{background:#fff;border:1px solid var(--line);}
+  .sort-menu{background:#fff;border:1px solid var(--line);box-shadow:0 8px 24px rgba(11,27,58,.10);}
+  .chip{background:#fff;color:var(--text);border:1px solid var(--line);border-radius:10px;text-transform:none;letter-spacing:0;font-weight:700;font-size:14px;box-shadow:none;}
+  .chip.active{background:#2563EB;color:#fff;border-color:#2563EB;box-shadow:none;transform:none;}
+  .subchip{background:#fff;color:var(--text);border:1px solid var(--line);}
+  .subchip.active{background:var(--accent-dim);color:#2563EB;border-color:#2563EB;box-shadow:none;}
+
+  /* карточки */
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:none;}
+  .card:hover,.card:active{background:var(--bg-card);border-color:var(--line);}
+  .card-media{background-color:var(--bg-card);border:none;border-radius:10px;box-shadow:none !important;}
+  .card .badge-tag,.card-like,.card-arrow,.card-dots{display:none !important;}
+  .card-name{color:var(--text);}
+  .card-price{color:var(--text);}
+  .price-old{color:var(--muted-dim);}
+  .price-new{color:#2563EB;}
+  .card-stock{color:var(--danger);}
+  .card-stock::before{display:none;}
+  .qa-btn{background:#2563EB;border-radius:12px;box-shadow:none !important;}
+  .qa-btn:active{transform:scale(.94);}
+  .qa-btn.qa-off{background:var(--bg-card);color:var(--muted-dim);}
+  .skel-card-media,.skel-line,.skel-thumb,.skel-btn{background:var(--bg-card);animation:none;}
+
+  /* боковое меню */
+  .sidebar-menu{background:#fff;box-shadow:none;border-right:1px solid var(--line);}
+  .sidebar-menu.active{box-shadow:0 0 40px rgba(11,27,58,.15);}
+  .sidebar-title{text-transform:none;letter-spacing:0;font-size:18px;}
+  .cat-sale .cat-link{color:#2563EB;letter-spacing:0;}
+  .loy-menu-note,.re-text{display:none;}
+
+  /* окна (шторки) */
+  .backdrop{background:rgba(11,27,58,.35);-webkit-backdrop-filter:none;backdrop-filter:none;}
+  .sheet{background:#fff;border-top:none;box-shadow:0 -10px 40px rgba(11,27,58,.14);}
+  .sheet-close{background:#fff;border:1px solid var(--line);color:var(--text);}
+  .sheet-close:hover{background:var(--bg-card);color:var(--text);border-color:var(--line);}
+  .pd-gallery{background:var(--bg-card);border:none;border-radius:14px;}
+  .pd-arrow{background:rgba(255,255,255,.9);color:var(--text);border:1px solid var(--line);-webkit-backdrop-filter:none;backdrop-filter:none;}
+  .pd-like{background:rgba(255,255,255,.9);border:1px solid var(--line);color:var(--text);-webkit-backdrop-filter:none;backdrop-filter:none;}
+  .pd-dot{background:rgba(11,27,58,.2);}
+  .pd-name{color:var(--text);}
+  .pd-cat{color:var(--muted-dim);}
+  .label{text-transform:none;letter-spacing:0;font-size:13px;color:var(--muted);font-weight:700;}
+
+  /* выбор вкуса */
+  .size-btn{background:#fff;border:1px solid var(--line);color:var(--text);border-radius:12px;}
+  .size-btn.active{background:var(--accent-dim);border-color:#2563EB;color:#2563EB;box-shadow:none;}
+  .stock-bar{background:var(--line-soft);}
+
+  /* кнопки */
+  .btn-primary{background:#2563EB;color:#fff;box-shadow:none !important;text-transform:none;letter-spacing:0;font-size:16px;font-weight:700;border-radius:12px;}
+  .btn-primary:active{transform:scale(.98);}
+  .btn-secondary{background:#fff;color:var(--text);border:1px solid var(--line);text-transform:none;letter-spacing:0;font-size:15px;font-weight:700;}
+  .promo-apply-btn:hover:not(:disabled){background:#2563EB;color:#fff;}
+
+  /* поля, переключатели */
+  .text-input,.promo-input{background:#fff;border:1px solid var(--line);color:var(--text);}
+  .text-input:focus,.promo-input:focus{border-color:#2563EB;box-shadow:none;}
+  .err{box-shadow:none;}
+  .seg-btn{background:#fff;border:1px solid var(--line);color:var(--text);}
+  .seg-btn.active{background:var(--accent-dim);border-color:#2563EB;color:#2563EB;box-shadow:none;}
+  .seg-btn small{color:var(--muted);}
+  .co-box,.promo-chip,.order-card,.cart-thumb,.co-summary{background:#fff;border-color:var(--line);}
+  .cart-name{color:var(--text);}
+  .cart-thumb{background-color:var(--bg-card);border:none;}
+  .loy-switch{background:var(--line);}
+  .loy-switch::after{background:#fff;box-shadow:0 1px 3px rgba(11,27,58,.25);}
+  .loy-row input:checked + .loy-switch{background:#2563EB;}
+
+  /* отзывы */
+  .rv-score{background:none;-webkit-text-fill-color:currentColor;color:var(--text);}
+  .rv-summary::before{display:none;}
+  .rv-empty{border:1px dashed var(--line);}
+  .rv-empty .rv-empty-star,.rv-rate label{color:#CBD6EA;}
+  .rv-form-sub,.rv-rate-hint,.rv-note,.success-sub{display:none !important;}
+
+  /* прочее */
+  .toast{background:#0B1B3A;color:#fff;border:none;box-shadow:0 8px 24px rgba(11,27,58,.2);}
+  .profile-avatar{background:#2563EB;}
+  .qa-float{text-shadow:none;}
+  .co-hint{color:var(--muted);font-weight:500;}
+  .age-gate{background:#fff;}
+  .age-q{text-transform:none;font-size:28px;}
+  .age-q b{color:inherit;}
+  .foot{border-top:1px solid var(--line);color:var(--muted);text-align:center;padding:24px 18px 36px;}
+  .foot p{margin:0;font-size:14px;}
+  .foot a{color:#2563EB;text-decoration:none;font-weight:700;margin-left:8px;}
+  .age-mark{border:1px solid var(--line);color:var(--muted);}
+  .card,.cart-row,.order-card,.co-box,.age-box{animation:none;}
+
+  /* шапка компактнее, чтобы всё помещалось в строку */
+  header{padding-left:14px;padding-right:14px;}
+  .wordmark{font-size:16px;margin-left:8px;}
+  .icon-btn{width:38px;height:38px;border-radius:11px;}
+  .header-actions{gap:6px;}
+  .brand{min-width:0;}
+
+  /* карточка товара: без пустой «картинки» и без лишних плашек */
+  .pd-gallery{box-shadow:none !important;}
+  .pd-gallery:has(.noimg){display:none;}
+  .pd-stock{background:none;border:none;padding:0;margin:0 0 14px;color:var(--muted);font-size:14px;text-transform:none;letter-spacing:0;font-weight:600;}
+  .pd-stock .stock-bar{display:none;}
+  .pd-stock *{text-transform:none !important;letter-spacing:0 !important;}
 </style>
 </head>
 <body>
-<div class="steel-glow" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="bb-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".35" stop-color="#DCEBFF"/><stop offset=".7" stop-color="#7DB8FF"/><stop offset="1" stop-color="#2F6FF0"/></linearGradient>
-<linearGradient id="bb-steel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".25" stop-color="#C9D8F0"/><stop offset=".5" stop-color="#8FA6CC"/><stop offset=".75" stop-color="#E4EEFF"/><stop offset="1" stop-color="#7B93BD"/></linearGradient>
-<radialGradient id="bb-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#2F7BFF" stop-opacity=".6"/><stop offset="1" stop-color="#2F7BFF" stop-opacity="0"/></radialGradient>
-<path id="bb-blade" d="M-70.0 -26.0H70.0L79.0 -17.0V-8H73.0V8H79.0V17.0L70.0 26.0H-70.0L-79.0 17.0V8H-73.0V-8H-79.0V-17.0Z"/>
-<path id="bb-word" d="M40.85095812633073 112.5762952448545Q40.85095812633073 114.48403122782115 39.934350603264726 115.93718949609652Q39.01774308019872 117.3903477643719 37.25159687721788 118.19517388218594Q35.48545067423704 119.0 33.08587650816182 119.0H22.041873669268984V98.0H37.85521646557842V101.38325053229241H26.43860894251242V106.361249112846H33.56281050390348Q37.0652945351313 106.361249112846 38.95812633073102 107.99325762952449Q40.85095812633073 109.62526614620299 40.85095812633073 112.5762952448545ZM36.40951029098652 112.63591199432221Q36.40951029098652 111.24982256919802 35.3736692689851 110.49716110716821Q34.337828246983676 109.7444996451384 32.281050390347765 109.7444996451384H26.43860894251242V115.57203690560681H32.37047551454933Q36.40951029098652 115.57203690560681 36.40951029098652 112.63591199432221ZM62.838748306342346 108.40312278211498Q62.838748306342346 111.6820440028389 61.54208400541971 114.17104329311569Q60.24541970449707 116.66004258339248 57.83094135105491 117.97906316536552Q55.416462997612754 119.29808374733854 52.19715852635654 119.29808374733854Q47.24896832053681 119.29808374733854 44.439529001871094 116.38431511710434Q41.63008968320537 113.47054648687012 41.63008968320537 108.40312278211498Q41.63008968320537 103.35060326472676 44.432076908187625 100.51880766501066Q47.23406413316988 97.68701206529454 52.22696690109039 97.68701206529454Q57.219869669010905 97.68701206529454 60.02930898767663 100.5486160397445Q62.838748306342346 103.41022001419446 62.838748306342346 108.40312278211498ZM58.35258790889735 108.40312278211498Q58.35258790889735 105.00496806245565 56.742935673269244 103.07487579843861Q55.13328343764114 101.14478353442158 52.22696690109039 101.14478353442158Q49.27593780243887 101.14478353442158 47.666285566810764 103.05997161107169Q46.05663333118266 104.97515968772178 46.05663333118266 108.40312278211498Q46.05663333118266 111.86089425124202 47.70354603522809 113.85060326472676Q49.350458739273506 115.8403122782115 52.19715852635654 115.8403122782115Q55.14818762500806 115.8403122782115 56.750387766952706 113.902767920511Q58.35258790889735 111.96522356281051 58.35258790889735 108.40312278211498ZM81.87550938770244 104.6472675656494Q81.87550938770244 106.67423704755146 80.95144977095296 108.26898509581264Q80.02739015420349 109.86373314407382 78.30595651332344 110.73562810503904Q76.58452287244339 111.60752306600426 74.21475708110201 111.60752306600426H68.99829150267759V119.0H64.60155622943415V98.0H74.03590683269888Q77.80666623653138 98.0 79.84108781211691 99.73633782824699Q81.87550938770244 101.47267565649398 81.87550938770244 104.6472675656494ZM77.44896573972514 104.72178850248403Q77.44896573972514 101.41305890702625 73.5440686495903 101.41305890702625H68.99829150267759V108.22427253371185H73.66330214852572Q75.48161300729079 108.22427253371185 76.46528937350797 107.32256919801279Q77.44896573972514 106.4208658623137 77.44896573972514 104.72178850248403ZM83.3849461255565 119.0V98.0H87.28984321569135V110.20652945351313Q87.28984321569135 111.80127750177431 87.17060971675593 114.30518097941803L96.30687657268211 98.0H101.25506677850186V119.0H97.350169688367V106.61462029808375Q97.350169688367 105.45209368346345 97.46940318730242 102.82895670688431L88.39275308084393 119.0ZM113.58494354474482 115.8403122782115Q117.5643615717143 115.8403122782115 119.1143970578747 111.84599006387509L122.94477321117492 113.291696238467Q121.70772565971998 116.33215046132008 119.31560358732821 117.81511710432932Q116.92348151493644 119.29808374733854 113.58494354474482 119.29808374733854Q108.51751983998967 119.29808374733854 105.75279308342473 116.42902767920512Q102.9880663268598 113.55997161107169 102.9880663268598 108.40312278211498Q102.9880663268598 103.23136976579134 105.65591586553971 100.45919091554293Q108.32376540421963 97.68701206529454 113.39118910897477 97.68701206529454Q117.08742757597264 97.68701206529454 119.41248080521324 99.16997870830377Q121.73753403445383 100.652945351313 122.67649783857023 103.52945351312988L118.80140912316924 104.5876508161817Q118.30957094006064 103.00780695528744 116.87131685915219 102.0762952448545Q115.43306277824375 101.14478353442158 113.48061423317633 101.14478353442158Q110.49977675979095 101.14478353442158 108.957193367314 102.99290276792051Q107.41460997483708 104.84102200141945 107.41460997483708 108.40312278211498Q107.41460997483708 112.02484031227822 109.00190592941479 113.93257629524486Q110.58920188399252 115.8403122782115 113.58494354474482 115.8403122782115ZM156.77060197432093 112.5762952448545Q156.77060197432093 114.48403122782115 155.85399445125492 115.93718949609652Q154.93738692818891 117.3903477643719 153.17124072520807 118.19517388218594Q151.40509452222724 119.0 149.005520356152 119.0H137.96151751725918V98.0H153.7748603135686V101.38325053229241H142.3582527905026V106.361249112846H149.48245435189367Q152.9849383831215 106.361249112846 154.87777017872122 107.99325762952449Q156.77060197432093 109.62526614620299 156.77060197432093 112.5762952448545ZM152.3291541389767 112.63591199432221Q152.3291541389767 111.24982256919802 151.2933131169753 110.49716110716821Q150.25747209497388 109.7444996451384 148.20069423833795 109.7444996451384H142.3582527905026V115.57203690560681H148.2901193625395Q152.3291541389767 115.57203690560681 152.3291541389767 112.63591199432221ZM175.61360861991093 104.6472675656494Q175.61360861991093 106.67423704755146 174.68954900316146 108.26898509581264Q173.765489386412 109.86373314407382 172.04405574553195 110.73562810503904Q170.32262210465188 111.60752306600426 167.95285631331052 111.60752306600426H162.7363907348861V119.0H158.33965546164268V98.0H167.77400606490738Q171.5447654687399 98.0 173.5791870443254 99.73633782824699Q175.61360861991093 101.47267565649398 175.61360861991093 104.6472675656494ZM171.18706497193367 104.72178850248403Q171.18706497193367 101.41305890702625 167.2821678817988 101.41305890702625H162.7363907348861V108.22427253371185H167.40140138073423Q169.2197122394993 108.22427253371185 170.2033886057165 107.32256919801279Q171.18706497193367 106.4208658623137 171.18706497193367 104.72178850248403ZM177.12304535776497 119.0V98.0H181.02794244789982V110.20652945351313Q181.02794244789982 111.80127750177431 180.9087089489644 114.30518097941803L190.04497580489058 98.0H194.99316601071033V119.0H191.08826892057547V106.61462029808375Q191.08826892057547 105.45209368346345 191.2075024195109 102.82895670688431L182.1308523130524 119.0ZM206.9951506548809 101.39815471965933V119.0H202.59841538163747V101.39815471965933H195.8170101296857V98.0H213.79146009419955V101.39815471965933ZM233.21573004709975 113.00851667849538Q233.21573004709975 115.87012065294535 231.06952706626225 117.43506032647267Q228.92332408542478 119.0 225.1078521194915 119.0H214.60040002580806V98.0H224.2136008774759Q228.05888121814303 98.0 230.03368604426083 99.33392476933996Q232.00849087037867 100.66784953867992 232.00849087037867 103.27608232789213Q232.00849087037867 105.06458481192335 231.01736241047803 106.29418026969482Q230.0262339505774 107.52377572746629 227.99926446867534 107.95599716110716Q230.54788050841984 108.2540809084457 231.88180527775978 109.5581973030518Q233.21573004709975 110.86231369765791 233.21573004709975 113.00851667849538ZM227.58194722240137 103.8722498225692Q227.58194722240137 102.45635202271114 226.6802438867023 101.86018452803407Q225.77854055100323 101.26401703335699 224.0049422543389 101.26401703335699H218.99713529905148V106.46557842441447H224.03475062907276Q225.89777404993865 106.46557842441447 226.73986063617002 105.81724627395316Q227.58194722240137 105.16891412349185 227.58194722240137 103.8722498225692ZM228.8040905864894 112.66572036905607Q228.8040905864894 109.71469127040454 224.57130137428214 109.71469127040454H218.99713529905148V115.73598296664301H224.73524743531834Q226.85164204142197 115.73598296664301 227.82786631395567 114.96841731724626Q228.8040905864894 114.20085166784953 228.8040905864894 112.66572036905607ZM249.92743789921923 119.0 248.06441447835337 113.63449254790632H240.06086586231362L238.19784244144776 119.0H233.80110716820434L241.46185947480475 98.0H246.64851667849533L254.2794606103619 119.0ZM244.05518807665004 101.23420865862315 243.96576295244847 101.56210078069553Q243.8167210787792 102.0986515259049 243.60806245564225 102.78424414478354Q243.39940383250527 103.46983676366217 241.04454222853082 110.32576295244854H247.0807381121362L245.00905606813336 104.28956706884316L244.3681760113555 102.2625975869411Z"/>
-<mask id="bb-mask" maskUnits="userSpaceOnUse" x="-100" y="-40" width="200" height="80"><rect x="-100" y="-40" width="200" height="80" fill="#fff"/><g fill="#000">
-<rect x="-62" y="-3.2" width="124" height="6.4" rx="3.2"/>
-<circle r="11.5"/>
-<path d="M-46 0L-38-11L-30 0L-38 11Z M46 0L38-11L30 0L38 11Z"/>
-<rect x="-70" y="-9" width="17" height="18" rx="8"/>
-<rect x="53" y="-9" width="17" height="18" rx="8"/>
-<path d="M-79-8h-7v16h7z M79-8h7v16h-7z"/>
-</g></mask>
-<clipPath id="bb-clip"><use href="#bb-blade"/></clipPath></defs><symbol id="bb-logo" viewBox="0 0 276 154" fill="none"><ellipse class="bb-glowp" cx="138" cy="52" rx="132" ry="52" fill="url(#bb-glow)"/>
-<g class="bb-float"><g transform="translate(138 44) rotate(-10)">
-<use href="#bb-blade" fill="#08183A" stroke="#08183A" stroke-width="7" stroke-linejoin="round" opacity=".9"/>
-<g mask="url(#bb-mask)"><use href="#bb-blade" fill="url(#bb-steel)"/><use href="#bb-blade" fill="none" stroke="#2F6FF0" stroke-width="2.2" stroke-linejoin="round" opacity=".8"/><path d="M-69.0 -21.0H69.0" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>
-<g clip-path="url(#bb-clip)"><g transform="skewX(-20)"><rect class="bb-shine" x="-100" y="-40" width="16" height="80" fill="#fff" opacity=".8"/></g></g></g>
-<use href="#bb-blade" fill="none" stroke="#DCEBFF" stroke-width="1.2" stroke-linejoin="round" opacity=".7"/>
-</g></g>
-<g transform="translate(236 14) scale(1.1)"><path class="bb-spark" d="M0-6Q1-1 6 0Q1 1 0 6Q-1 1-6 0Q-1-1 0-6Z" fill="#fff"/></g>
-<g transform="translate(44 86) scale(.8)"><path class="bb-spark" style="animation-delay:-1.3s" d="M0-6Q1-1 6 0Q1 1 0 6Q-1 1-6 0Q-1-1 0-6Z" fill="#fff"/></g>
-<use href="#bb-word" fill="#08183A" stroke="#08183A" stroke-width="7" stroke-linejoin="round"/>
-<use href="#bb-word" fill="url(#bb-gold)" stroke="#fff" stroke-width=".6" stroke-linejoin="round"/>
-<g stroke="url(#bb-gold)" stroke-width="2.4" stroke-linecap="round"><path d="M30 140H92"/><path d="M184 140H246"/></g>
-<path d="M110.3950177430802 146.0V133.0H113.02454222853088V143.7487579843861H117.30559261887863V133.0H119.93511710432931V143.7487579843861H124.22539389638041V133.0H126.85491838183108V146.0ZM146.1801703335699 139.4400283889283Q146.1801703335699 141.46983676366216 145.3774733853797 143.01064584811922Q144.57477643718948 144.5514549325763 143.0800993612491 145.3679914833215Q141.5854222853087 146.18452803406672 139.5925195173882 146.18452803406672Q136.52935415188077 146.18452803406672 134.79017743080198 144.38076650106458Q133.0510007097232 142.57700496806245 133.0510007097232 139.4400283889283Q133.0510007097232 136.31227821149753 134.7855642299503 134.55926188786373Q136.5201277501774 132.80624556422995 139.61097232079487 132.80624556422995Q142.70181689141234 132.80624556422995 144.44099361249113 134.5777146912704Q146.1801703335699 136.34918381831085 146.1801703335699 139.4400283889283ZM143.40302342086585 139.4400283889283Q143.40302342086585 137.33640880056777 142.4065720369056 136.1415897799858Q141.41012065294535 134.94677075940382 139.61097232079487 134.94677075940382Q137.7841447835344 134.94677075940382 136.78769339957415 136.13236337828246Q135.7912420156139 137.3179559971611 135.7912420156139 139.4400283889283Q135.7912420156139 141.5805535841022 136.8107594038325 142.81227821149753Q137.83027679205108 144.04400283889282 139.5925195173882 144.04400283889282Q141.41934705464868 144.04400283889282 142.41118523775725 142.84457061745917Q143.40302342086585 141.64513839602554 143.40302342086585 139.4400283889283ZM160.8184102200142 146.0V135.2512420156139H155.1072675656494V146.0H152.3947054648687V133.0H163.44793470546486V146.0Z" fill="#08183A" stroke="#08183A" stroke-width="5" stroke-linejoin="round"/><path d="M110.3950177430802 146.0V133.0H113.02454222853088V143.7487579843861H117.30559261887863V133.0H119.93511710432931V143.7487579843861H124.22539389638041V133.0H126.85491838183108V146.0ZM146.1801703335699 139.4400283889283Q146.1801703335699 141.46983676366216 145.3774733853797 143.01064584811922Q144.57477643718948 144.5514549325763 143.0800993612491 145.3679914833215Q141.5854222853087 146.18452803406672 139.5925195173882 146.18452803406672Q136.52935415188077 146.18452803406672 134.79017743080198 144.38076650106458Q133.0510007097232 142.57700496806245 133.0510007097232 139.4400283889283Q133.0510007097232 136.31227821149753 134.7855642299503 134.55926188786373Q136.5201277501774 132.80624556422995 139.61097232079487 132.80624556422995Q142.70181689141234 132.80624556422995 144.44099361249113 134.5777146912704Q146.1801703335699 136.34918381831085 146.1801703335699 139.4400283889283ZM143.40302342086585 139.4400283889283Q143.40302342086585 137.33640880056777 142.4065720369056 136.1415897799858Q141.41012065294535 134.94677075940382 139.61097232079487 134.94677075940382Q137.7841447835344 134.94677075940382 136.78769339957415 136.13236337828246Q135.7912420156139 137.3179559971611 135.7912420156139 139.4400283889283Q135.7912420156139 141.5805535841022 136.8107594038325 142.81227821149753Q137.83027679205108 144.04400283889282 139.5925195173882 144.04400283889282Q141.41934705464868 144.04400283889282 142.41118523775725 142.84457061745917Q143.40302342086585 141.64513839602554 143.40302342086585 139.4400283889283ZM160.8184102200142 146.0V135.2512420156139H155.1072675656494V146.0H152.3947054648687V133.0H163.44793470546486V146.0Z" fill="#DCEBFF"/>
-</symbol></svg>
+
+
 <div id="app">
   <header id="mainHeader">
     <div class="brand">
@@ -1069,14 +1226,13 @@
               aria-label="Открыть каталог" aria-controls="sidebarMenu" aria-expanded="false">
         <span class="burger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
       </button>
-      <svg class="logo-svg" role="img" aria-label="Борис Бритва Шоп"><use href="#bb-logo"/></svg>
+      <span class="wordmark">Борис Бритва</span>
     </div>
     <div class="header-actions">
       <button class="icon-btn" id="reviewsBtn" type="button" aria-label="Отзывы">
   <svg width="18" height="18" viewBox="0 0 24 24" stroke-width="1.4" stroke-linejoin="round">
     <path d="M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8L12 3.2Z"/>
   </svg>
-  <span class="icon-badge rating-badge" id="reviewsBadge">4.8</span>
 </button>
       <button class="icon-btn" id="favBtn" aria-label="Избранное">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 20.5s-7.6-4.6-10-9.1C.5 8 2 4.7 5.3 4.1c2-.4 3.9.5 5 2.2 1.1-1.7 3-2.6 5-2.2C18.6 4.7 20 8 19.6 9c-2 4.9-7.6 11.5-7.6 11.5Z"/></svg>
@@ -1096,33 +1252,15 @@
     <span class="loy-gem"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12l4 6-10 12L2 9l4-6Z"/><path d="M2 9h20M10 3 8 9l4 12 4-12-2-6"/></svg></span><span><b id="loyPillVal">0 баллов</b> <span id="loyPillRub">(0 ₽)</span></span>
   </button>
 
-  <div class="ticker-wrap">
-    <div class="ticker" id="ticker"></div>
-  </div>
+  <div id="ticker" style="display:none"></div>
 
-  <section class="hero">
-    <svg class="hero-logo" role="img" aria-label="Борис Бритва Шоп" viewBox="0 0 276 154"><use href="#bb-logo"/></svg>
-    <div class="hero-tag">Борис Бритва Шоп · Казань</div>
-    <h1 class="hero-title">Острый<br><i>выбор</i></h1>
-    <p class="hero-sub">Только оригинал. Получение в Казани — бесплатно, доставка по республике — 59 ₽, бесплатно от 990 ₽, отправка по всей России.</p>
-    <div class="perks">
-      <span class="perk"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>Всё оригинал</span>
-      <span class="perk"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>Получение в Казани — бесплатно</span>
-      <span class="perk"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>Доставка 59 ₽ · бесплатно от 990 ₽</span>
-      <span class="perk"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>От 1 дня · 50+ успешных отправок</span>
-    </div>
-    <button class="hero-cta" id="contactBtn">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4 3 11l6 2.5L11.5 20 14 15l5 3.5L21 4Z"/></svg>
-      Написать менеджеру
-    </button>
-  </section>
+  <button id="contactBtn" type="button" hidden></button>
 
-  <div class="section-title">Каталог</div>
-
+  
   <div class="search-wrap" id="searchWrap">
     <div class="search-box" id="searchBox">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input class="search-input" id="searchInput" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Поиск: waka, под, жижа, до 1000" aria-label="Поиск товаров">
+      <input class="search-input" id="searchInput" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Поиск" aria-label="Поиск товаров">
       <button class="search-clear" id="searchClear" type="button" aria-label="Очистить поиск"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div class="search-tips" id="searchTips" hidden></div>
@@ -1150,9 +1288,7 @@
   </div>
 
   <footer class="foot">
-    <svg class="logo-svg" role="img" aria-label="Борис Бритва Шоп"><use href="#bb-logo"/></svg>
-    <p><span class="age-mark">18+</span>Продукция содержит никотин, который вызывает зависимость. Только для совершеннолетних.</p>
-    <p style="margin-top:8px;">Вопросы и заказы: <a href="#" id="footContact">@britvaboris1</a></p>
+    <p><span class="age-mark">18+</span><a href="#" id="footContact">@britvaboris1</a></p>
   </footer>
 </div>
 
@@ -1226,124 +1362,6 @@
   </div>
 </div>
 
-<!-- 1. Список отзывов -->
-<div class="sheet" id="reviewsSheet">
-  <div class="sheet-drag-zone">
-    <button class="sheet-close" data-close aria-label="Закрыть">×</button>
-    <div class="sheet-handle"></div>
-  </div>
-  <div class="sheet-inner">
-    <div class="reviews-container" id="reviewsContainer">
-
-      <h2 class="rv-title">Отзывы</h2>
-
-      <!-- сводка -->
-      <section class="rv-summary" aria-label="Средний рейтинг">
-        <div class="rv-summary-top">
-          <div class="rv-score" id="rvScore">4.8<small>/5</small></div>
-          <div class="rv-summary-meta">
-            <span class="rv-stars" id="rvSummaryStars" style="--rating:4.8" aria-hidden="true">★★★★★</span>
-            <span class="rv-count" id="rvCount">12 отзывов</span>
-          </div>
-        </div>
-        <button class="btn-primary" id="rvWriteBtn" type="button">Оставить отзыв</button>
-      </section>
-
-      <!-- список (карточки рисуются по шаблону ниже) -->
-      <div class="rv-list" id="rvList">
-        <!-- пример карточки — удали, когда подключишь данные -->
-        <article class="rv-card">
-          <header class="rv-card-head">
-            <div class="rv-avatar">И</div>
-            <div class="rv-author"><b>Иван</b><span class="rv-date">12 октября 2026</span></div>
-            <span class="rv-stars" style="--rating:5" aria-label="Оценка 5 из 5">★★★★★</span>
-          </header>
-          <p class="rv-text">Заказ привезли в тот же день, всё оригинал и аккуратно упаковано. Менеджер быстро ответил на вопросы.</p>
-        </article>
-        <article class="rv-card">
-          <header class="rv-card-head">
-            <div class="rv-avatar">А</div>
-            <div class="rv-author"><b>Алексей</b><span class="rv-date">9 октября 2026</span></div>
-            <span class="rv-stars" style="--rating:4" aria-label="Оценка 4 из 5">★★★★★</span>
-          </header>
-          <p class="rv-text">Хороший выбор жидкостей, цены адекватные. Доставка чуть задержалась, но предупредили заранее.</p>
-        </article>
-      </div>
-
-      <!-- пустое состояние: показывается, когда одобренных отзывов нет -->
-      <div class="rv-empty" id="rvEmpty" hidden>
-        <div class="rv-empty-star">★</div>
-        <div>Пока нет отзывов.<br>Станьте первым, кто поделится впечатлением!</div>
-      </div>
-
-      <!-- шаблон карточки для JS -->
-      <template id="rvCardTpl">
-        <article class="rv-card">
-          <header class="rv-card-head">
-            <div class="rv-avatar"></div>
-            <div class="rv-author"><b></b><span class="rv-date"></span></div>
-            <span class="rv-stars" style="--rating:5">★★★★★</span>
-          </header>
-          <p class="rv-text"></p>
-        </article>
-      </template>
-
-    </div>
-  </div>
-</div>
-
-
-<!-- 2. Форма «Написать отзыв» -->
-<div class="sheet" id="reviewFormSheet">
-  <div class="sheet-drag-zone">
-    <button class="sheet-close" data-close aria-label="Закрыть">×</button>
-    <div class="sheet-handle"></div>
-  </div>
-  <div class="sheet-inner">
-    <div class="pd-name" style="margin-top:4px;">Написать отзыв</div>
-    <p class="rv-form-sub">Ваша оценка помогает другим покупателям сделать выбор.</p>
-
-    <div class="label" style="margin-top:18px;">Ваша оценка</div>
-    <div class="rv-rate" id="rvRate" role="radiogroup" aria-label="Оценка от 1 до 5">
-      <!-- порядок 5→1 нужен для подсветки «все звёзды до выбранной» -->
-      <input type="radio" name="rvRating" id="rvStar5" value="5"><label for="rvStar5" title="Отлично" aria-label="5 звёзд">★</label>
-      <input type="radio" name="rvRating" id="rvStar4" value="4"><label for="rvStar4" title="Хорошо" aria-label="4 звезды">★</label>
-      <input type="radio" name="rvRating" id="rvStar3" value="3"><label for="rvStar3" title="Нормально" aria-label="3 звезды">★</label>
-      <input type="radio" name="rvRating" id="rvStar2" value="2"><label for="rvStar2" title="Плохо" aria-label="2 звезды">★</label>
-      <input type="radio" name="rvRating" id="rvStar1" value="1"><label for="rvStar1" title="Ужасно" aria-label="1 звезда">★</label>
-    </div>
-    <div class="rv-rate-hint" id="rvRateHint">Нажмите на звезду</div>
-
-    <div class="label" style="margin-top:14px;">Ваш отзыв</div>
-    <textarea id="rvText" class="text-input rv-textarea" maxlength="2000"
-              placeholder="Расскажите о качестве товаров и доставки..."></textarea>
-    <div class="rv-counter"><span id="rvTextCount">0</span> / 2000</div>
-
-    <div class="form-error" id="rvError"></div>
-
-    <button class="btn-primary" id="rvSubmitBtn" type="button" style="margin-top:6px;">Отправить на проверку</button>
-
-    <div class="rv-note"><span>🛡️</span><div>Отзыв появится в списке после проверки администратором.</div></div>
-  </div>
-</div>
-
-
-<!-- 3. «Спасибо» после отправки -->
-<div class="sheet" id="reviewSuccessSheet">
-  <div class="sheet-drag-zone">
-    <button class="sheet-close" data-close aria-label="Закрыть">×</button>
-    <div class="sheet-handle"></div>
-  </div>
-  <div class="sheet-inner">
-    <div class="success-icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>
-    </div>
-    <div class="success-title">Спасибо за отзыв!</div>
-    <div class="success-sub">Он отправлен на проверку и скоро появится в списке.</div>
-    <button class="btn-secondary" data-close>Закрыть</button>
-  </div>
-</div>
-
 <!-- Меню категорий -->
 <div class="menu-overlay" id="menuOverlay"></div>
 
@@ -1370,7 +1388,6 @@
       <button class="reviews-entry" id="menuReviewsBtn" type="button">
         <span class="re-star" aria-hidden="true">⭐</span>
         <span class="re-name">Отзывы</span>
-        <span class="re-badge" id="menuReviewsBadge">4.8</span>
         <svg class="re-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
       </button>
     </div>
@@ -1441,7 +1458,6 @@
   </div>
   <div class="sheet-inner">
     <div class="pd-name" style="margin-top:4px;">Оформление заказа</div>
-    <div class="test-badge">Выберите самовывоз или доставку и удобное время — менеджер свяжется и подтвердит заказ.</div>
 
     <div class="label" style="margin-top:18px;">Имя</div>
     <input type="text" id="coName" class="text-input" placeholder="Как к вам обращаться">
@@ -1449,10 +1465,12 @@
     <div class="label" style="margin-top:15px;">Телефон</div>
     <input type="tel" id="coPhone" class="text-input" placeholder="+7 900 000-00-00">
 
-    <div class="label" style="margin-top:18px;">Как получить заказ</div>
+    <div class="label" style="margin-top:18px;">Выберите вид доставки</div>
     <div class="seg" id="coMode">
-      <button type="button" class="seg-btn active" data-mode="pickup">📍 Самовывоз<small>бесплатно</small></button>
-      <button type="button" class="seg-btn" data-mode="delivery">🚚 Доставка<small id="coFeeLabel">+59 ₽</small></button>
+      <button type="button" class="seg-btn active" data-mode="pickup">1. Самовывоз<small>бесплатно</small></button>
+      <button type="button" class="seg-btn" data-mode="delivery">2. Личная доставка<small id="coFeeLabel">от 3 000 ₽</small></button>
+      <button type="button" class="seg-btn" data-mode="fivepost">3. 5Post<small>по России</small></button>
+      <button type="button" class="seg-btn" data-mode="cdek">4. СДЭК<small>по России</small></button>
     </div>
 
     <div class="co-box" id="coPickupBox">
@@ -1464,15 +1482,22 @@
       <textarea id="coAddress" class="text-input" style="min-height:64px;" placeholder="Улица, дом, подъезд, этаж, квартира"></textarea>
       <div id="coFreeHint" style="display:none;margin-top:8px;font-size:12.5px;font-weight:600;color:var(--accent-soft);"></div>
     </div>
+    <div class="co-box" id="coShipBox" style="display:none;">
+      <div class="label" style="margin-top:14px;" id="coShipLabel">Пункт выдачи 5Post</div>
+      <textarea id="coShipAddr" class="text-input" style="min-height:64px;" placeholder="Город и адрес пункта выдачи / постамата"></textarea>
+      <div class="co-hint">Стоимость рассчитает менеджер</div>
+    </div>
 
+    <div id="coWhenWrap">
     <div class="label" style="margin-top:15px;">Когда удобно</div>
     <div class="seg" id="coWhen">
-      <button type="button" class="seg-btn active" data-when="asap">⚡ Как можно скорее</button>
-      <button type="button" class="seg-btn" data-when="time">🕒 Выбрать время</button>
+      <button type="button" class="seg-btn active" data-when="asap">Как можно скорее</button>
+      <button type="button" class="seg-btn" data-when="time">Выбрать время</button>
     </div>
     <div class="co-box time-row" id="coTimeBox" style="display:none;margin-top:8px;">
       <input type="date" id="coDate" class="text-input">
       <input type="time" id="coTime" class="text-input">
+    </div>
     </div>
 
     <div class="label" style="margin-top:15px;">Комментарий к заказу</div>
@@ -1534,14 +1559,12 @@
 
 <div class="age-gate" id="ageGate">
   <div class="age-box">
-    <svg class="logo-svg" role="img" aria-label="Борис Бритва Шоп"><use href="#bb-logo"/></svg>
     <div class="age-actions">
-      <h2 class="age-q">Тебе есть <b>18</b>?</h2>
-      <p class="age-text">В магазине Борис Бритва Шоп продаётся никотиносодержащая продукция. Вход разрешён только совершеннолетним.</p>
-      <button class="btn-primary" id="ageYes">Да, мне есть 18</button>
-      <button class="age-deny" id="ageNo">Нет, мне меньше 18</button>
+      <h2 class="age-q">Вам есть 18 лет?</h2>
+      <button class="btn-primary" id="ageYes">Да</button>
+      <button class="age-deny" id="ageNo">Нет</button>
     </div>
-    <div class="age-blocked">Извини, мы не можем показать каталог. Возвращайся, когда исполнится 18.</div>
+    <div class="age-blocked">Каталог доступен только с 18 лет.</div>
   </div>
 </div>
 
@@ -1557,7 +1580,7 @@
 
 <script>
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.ready(); tg.expand(); try{ tg.setBackgroundColor('#08183A'); tg.setHeaderColor('#08183A'); tg.MainButton.hide(); }catch(e){} }
+if (tg) { tg.ready(); tg.expand(); try{ tg.setBackgroundColor('#FFFFFF'); tg.setHeaderColor('#FFFFFF'); tg.MainButton.hide(); }catch(e){} }
 
 const SWATCHES = [
   'radial-gradient(circle at 75% 15%,rgba(255,255,255,.16),transparent 45%),linear-gradient(155deg,#1F5BD6,#071230 92%)',
@@ -1571,6 +1594,7 @@ let DELIVERY_FEE = 59;
 let FREE_DELIVERY_FROM = 990; // бесплатная доставка от этой суммы товаров (после промокода); 0 — отключено
 function deliveryFeeFor(goods){ return (FREE_DELIVERY_FROM > 0 && goods >= FREE_DELIVERY_FROM) ? 0 : DELIVERY_FEE; }
 let PICKUP_POINTS = ['Казань (личная доставка)'];
+let PERSONAL_DELIVERY_MIN = 3000; // личная доставка доступна от этой суммы товаров
 let SHOP_CONTACT = 'britvaboris1'; // Telegram-аккаунт менеджера (без @); сервер может переопределить через SHOP_CONTACT
 const fmt = n => (Number.isInteger(n) ? n.toLocaleString('ru-RU')
   : n.toLocaleString('ru-RU', { minimumFractionDigits:2, maximumFractionDigits:2 })) + ' ₽';
@@ -1580,7 +1604,7 @@ const priceHTML = p => (p.old_price && p.old_price > p.price)
   : fmt(p.price);
 const firstImage = p => (p.images && p.images.length) ? p.images[0] : (p.image || null);
 const noimg = url => url ? '' : ' noimg';
-const slideBg = (url, p) => url ? `background-image:url('${url}');background-size:cover;background-position:center;` : `background:${SWATCHES[p.swatch % SWATCHES.length]};`;
+const slideBg = (url, p) => url ? `background-image:url('${url}');background-size:cover;background-position:center;` : `background:#EEF3FB;`;
 const media = p => slideBg(firstImage(p), p);
 
 let PRODUCTS = [];
@@ -1853,11 +1877,11 @@ function cardHTML(p, i){
   const brand = p.brand || ((p.subcategory && p.subcategory !== 'Другие') ? p.subcategory : p.category);
   const code = p.sku || p.article || p.code || '';
   const meta = [brand, code ? 'арт. ' + code : ''].filter(Boolean).map(escHtml).join(' · ');
-  const unit = '<span class="unit">/шт</span>';
+  const unit = '';
   const price = (p.old_price && p.old_price > p.price)
     ? `<span class="price-old">${fmtMoney2(p.old_price)}</span><span class="price-new">${fmtMoney2(p.price)} ₽</span>${unit}`
     : `${fmtMoney2(p.price)} ₽${unit}`;
-  const stockLine = st ? `<div class="card-stock tone-${st.tone}">${soldOut ? 'Нет в наличии' : 'В наличии: ' + st.n + ' шт.'}</div>` : '';
+  const stockLine = (st && soldOut) ? `<div class="card-stock tone-${st.tone}">Нет в наличии</div>` : '';
   const inCart = cartQtyOf(p.id);
   const action = soldOut
     ? `<button class="qa-btn qa-off" type="button" aria-disabled="true" tabindex="-1" data-id="${p.id}" aria-label="Нет в наличии">Нет</button>`
@@ -1876,8 +1900,7 @@ function cardHTML(p, i){
       </div>
       <div class="card-body">
         <div class="card-name">${hlName(p.name)}</div>
-        ${meta ? `<div class="card-meta">${meta}</div>` : ''}
-        <div class="card-price">${price}</div>
+                <div class="card-price">${price}</div>
         ${stockLine}
       </div>
       <div class="qa">${action}</div>
@@ -2637,16 +2660,20 @@ function updateCheckoutSummary(){
   const s = checkoutTotal();
   document.getElementById('coSumGoods').textContent = fmt(s.subtotal - s.discount);
   const isDlv = coState.mode === 'delivery';
-  document.getElementById('coSumDlvRow').style.display = isDlv ? 'flex' : 'none';
-  document.getElementById('coSumDlv').textContent = s.fee ? fmt(s.fee) : 'бесплатно';
+  const isShip = coState.mode === 'fivepost' || coState.mode === 'cdek';
   const goodsSum = s.subtotal - s.discount;
-  document.getElementById('coFeeLabel').textContent = isDlv && !s.fee ? 'бесплатно' : (DELIVERY_FEE ? '+' + fmt(DELIVERY_FEE) : 'бесплатно');
+  const row = document.getElementById('coSumDlvRow');
+  row.style.display = (isDlv || isShip) ? 'flex' : 'none';
+  document.getElementById('coSumDlv').textContent = isShip ? 'рассчитает менеджер' : (s.fee ? fmt(s.fee) : 'бесплатно');
+  document.getElementById('coFeeLabel').textContent = 'от ' + fmt(PERSONAL_DELIVERY_MIN);
   const hint = document.getElementById('coFreeHint');
   if (hint){
-    if (isDlv && FREE_DELIVERY_FROM > 0){
+    if (isDlv && goodsSum < PERSONAL_DELIVERY_MIN){
       hint.style.display = '';
-      hint.textContent = s.fee ? '✓ Бесплатная доставка — заказ от ' + fmt(FREE_DELIVERY_FROM)
-                               : 'Добавьте товаров ещё на ' + fmt(FREE_DELIVERY_FROM - goodsSum) + ' — и доставка будет бесплатной';
+      hint.textContent = 'Личная доставка — от ' + fmt(PERSONAL_DELIVERY_MIN) + '. Добавьте товаров ещё на ' + fmt(PERSONAL_DELIVERY_MIN - goodsSum) + ' или выберите другой способ.';
+    } else if (isDlv && FREE_DELIVERY_FROM > 0 && s.fee){
+      hint.style.display = '';
+      hint.textContent = 'Добавьте товаров ещё на ' + fmt(FREE_DELIVERY_FROM - goodsSum) + ' — и доставка будет бесплатной';
     } else hint.style.display = 'none';
   }
   document.getElementById('coSumPtsRow').style.display = s.points ? 'flex' : 'none';
@@ -2663,7 +2690,11 @@ function renderCheckoutOpts(){
   box.querySelectorAll('.size-btn').forEach(b => b.onclick = () => { coState.point = b.dataset.point; renderCheckoutOpts(); });
   document.getElementById('coPickupBox').style.display = coState.mode === 'pickup' ? '' : 'none';
   document.getElementById('coDeliveryBox').style.display = coState.mode === 'delivery' ? '' : 'none';
-  document.getElementById('coTimeBox').style.display = coState.when === 'time' ? '' : 'none';
+  const isShip = coState.mode === 'fivepost' || coState.mode === 'cdek';
+  document.getElementById('coShipBox').style.display = isShip ? '' : 'none';
+  document.getElementById('coShipLabel').textContent = coState.mode === 'cdek' ? 'Пункт выдачи или адрес СДЭК' : 'Пункт выдачи или постамат 5Post';
+  document.getElementById('coWhenWrap').style.display = isShip ? 'none' : '';
+  document.getElementById('coTimeBox').style.display = (!isShip && coState.when === 'time') ? '' : 'none';
   document.querySelectorAll('#coMode .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === coState.mode));
   document.querySelectorAll('#coWhen .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.when === coState.when));
   const dateEl = document.getElementById('coDate');
@@ -2677,8 +2708,12 @@ renderCheckoutOpts();
 
 function deliveryLine(d){
   if (!d) return '';
-  const place = d.mode === 'delivery' ? `🚚 Доставка: ${d.address||'—'}` : `📍 Самовывоз: ${d.point||'—'}`;
-  let when = '⚡ Как можно скорее';
+  const place = d.mode === 'delivery' ? `🚚 Личная доставка: ${d.address||'—'}`
+    : d.mode === 'fivepost' ? `📦 5Post: ${d.address||'—'}`
+    : d.mode === 'cdek' ? `🚛 СДЭК: ${d.address||'—'}`
+    : `📍 Самовывоз: ${d.point||'—'}`;
+  if (d.mode === 'fivepost' || d.mode === 'cdek') return place;
+  let when = 'Как можно скорее';
   if (!d.asap && d.date){
     const [y,m,dd] = d.date.split('-');
     when = `🕒 ${dd}.${m} в ${d.time||''}`;
@@ -2724,10 +2759,18 @@ async function submitOrder(){
     if (el) el.classList.add('err');
     if (tg) tg.HapticFeedback?.notificationOccurred('error');
   };
-  if (coState.mode === 'delivery' && addrEl.value.trim().length < 5){
-    return fail('Укажите адрес доставки', addrEl);
+  const shipEl = document.getElementById('coShipAddr');
+  shipEl.classList.remove('err');
+  const isShip = coState.mode === 'fivepost' || coState.mode === 'cdek';
+  if (coState.mode === 'delivery'){
+    const _goods = cartSubtotal() - (appliedPromo ? computePromoDiscount(appliedPromo, cartSubtotal()) : 0);
+    if (_goods < PERSONAL_DELIVERY_MIN) return fail('Личная доставка доступна от ' + fmt(PERSONAL_DELIVERY_MIN) + ' — выберите другой способ', null);
+    if (addrEl.value.trim().length < 5) return fail('Укажите адрес доставки', addrEl);
   }
-  if (coState.when === 'time'){
+  if (isShip && shipEl.value.trim().length < 5){
+    return fail('Укажите город и адрес пункта выдачи', shipEl);
+  }
+  if (!isShip && coState.when === 'time'){
     if (!dateEl.value || !timeEl.value) return fail('Выберите дату и время', !timeEl.value ? timeEl : dateEl);
     if (new Date(`${dateEl.value}T${timeEl.value}`) < new Date(Date.now() - 60000)) return fail('Это время уже прошло — выберите другое', timeEl);
   }
@@ -2746,10 +2789,10 @@ async function submitOrder(){
     delivery: {
       mode: coState.mode,
       point: coState.mode === 'pickup' ? coState.point : null,
-      address: coState.mode === 'delivery' ? addrEl.value.trim() : null,
-      asap: coState.when === 'asap',
-      date: coState.when === 'time' ? dateEl.value : null,
-      time: coState.when === 'time' ? timeEl.value : null,
+      address: coState.mode === 'delivery' ? addrEl.value.trim() : (isShip ? shipEl.value.trim() : null),
+      asap: isShip ? true : coState.when === 'asap',
+      date: (!isShip && coState.when === 'time') ? dateEl.value : null,
+      time: (!isShip && coState.when === 'time') ? timeEl.value : null,
     },
     promo_code: appliedPromo ? appliedPromo.code : undefined,
     points_to_spend: loyaltyCalc(subtotal - discount).spend,   // сколько баллов списать (0, если тумблер выключен)
@@ -2788,7 +2831,7 @@ async function submitOrder(){
     document.getElementById('coName').value = '';
     document.getElementById('coPhone').value = '';
     document.getElementById('coComment').value = '';
-    addrEl.value = ''; timeEl.value = '';
+    addrEl.value = ''; timeEl.value = ''; shipEl.value = '';
     coState.when = 'asap'; coState.mode = 'pickup'; renderCheckoutOpts();
     openSheet('successSheet');
     showToast('Заказ отправлен на обработку', 'success');
@@ -2867,6 +2910,7 @@ fetch('/api/config').then(r => r.ok ? r.json() : null).then(c => {
   if (c && c.contact){ SHOP_CONTACT = c.contact; footContact.textContent = '@' + SHOP_CONTACT; }
   if (c && Number.isFinite(c.delivery_fee)) DELIVERY_FEE = c.delivery_fee;
   if (c && Number.isFinite(c.free_delivery_from)) FREE_DELIVERY_FROM = c.free_delivery_from;
+  if (c && Number.isFinite(c.personal_delivery_min)) PERSONAL_DELIVERY_MIN = c.personal_delivery_min;
   if (c && Array.isArray(c.pickup_points) && c.pickup_points.length) PICKUP_POINTS = c.pickup_points;
   if (c && Number.isFinite(c.max_points_percent)) LOYALTY.maxPercent = c.max_points_percent;
   if (c && Number.isFinite(c.cashback_percent)) LOYALTY.cashbackPercent = c.cashback_percent;
@@ -3627,263 +3671,18 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
   }, true);
 })();
 
-/* ===================== ОТЗЫВЫ ===================== */
-(function initReviews(){
-  'use strict';
-
-  const API_URL     = '/api/reviews';
-  const SUCCESS_MSG = 'Ваш отзыв отправлен на модерацию и появится после проверки администратором.';
-  const RATING_HINTS = { 1:'Ужасно', 2:'Плохо', 3:'Нормально', 4:'Хорошо', 5:'Отлично' };
-
-  const $ = id => document.getElementById(id);
-  const el = {
-    headerBtn:   $('reviewsBtn'),
-    menuBtn:     $('menuReviewsBtn'),
-    badgeHeader: $('reviewsBadge'),
-    badgeMenu:   $('menuReviewsBadge'),
-    score:       $('rvScore'),
-    sumStars:    $('rvSummaryStars'),
-    count:       $('rvCount'),
-    list:        $('rvList'),
-    empty:       $('rvEmpty'),
-    tpl:         $('rvCardTpl'),
-    writeBtn:    $('rvWriteBtn'),
-    rate:        $('rvRate'),
-    rateHint:    $('rvRateHint'),
-    text:        $('rvText'),
-    textCount:   $('rvTextCount'),
-    error:       $('rvError'),
-    submit:      $('rvSubmitBtn'),
-    success:     $('reviewSuccessSheet'),
-  };
-  if (!el.list || !el.tpl || !el.rate || !el.submit) return;   // верстка не подключена
-
-  let selectedRating = 5;
-  let loadSeq = 0;
-
-  /* ---------- вспомогательное ---------- */
-  function plural(n, one, few, many){
-    const m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return one;
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-    return many;
-  }
-  const reviewsWord = n => `${n} ${plural(n, 'отзыв', 'отзыва', 'отзывов')}`;
-
-  function fmtDate(iso){
-    const d = new Date(iso);
-    if (isNaN(d)) return '';
-    return d.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' });
-  }
-
-  function haptic(kind){ try { tg?.HapticFeedback?.notificationOccurred(kind); } catch(e){} }
-
-  /* ---------- 1. ЗАГРУЗКА И ОТРИСОВКА ---------- */
-  function renderSummary(average, count){
-    const has = count > 0;
-    const avg = has ? Number(average).toFixed(1) : '';
-
-    if (el.score)     el.score.innerHTML = has ? `${avg}<small>/5</small>` : '—';
-    if (el.sumStars)  el.sumStars.style.setProperty('--rating', has ? Number(average) : 0);
-    if (el.count)     el.count.textContent = has ? reviewsWord(count) : 'Пока нет отзывов';
-
-    [el.badgeHeader, el.badgeMenu].forEach(b => {
-      if (!b) return;
-      b.textContent = avg;
-      b.style.display = has ? '' : 'none';     // '' → берём display из CSS (flex)
-    });
-  }
-
-  function renderList(reviews){
-    el.list.textContent = '';
-    const frag = document.createDocumentFragment();
-
-    reviews.forEach((r, i) => {
-      const card = el.tpl.content.firstElementChild.cloneNode(true);
-      const name = String(r.author_name || 'Аноним');
-
-      card.querySelector('.rv-avatar').textContent = (Array.from(name)[0] || '?').toUpperCase();
-      card.querySelector('.rv-author b').textContent = name;
-      card.querySelector('.rv-date').textContent = fmtDate(r.created_at);
-      card.querySelector('.rv-text').textContent = r.text || '';
-
-      const stars = card.querySelector('.rv-stars');
-      const rating = Math.max(0, Math.min(5, Number(r.rating) || 0));
-      stars.style.setProperty('--rating', rating);
-      stars.setAttribute('aria-label', `Оценка ${rating} из 5`);
-
-      card.style.animationDelay = `${Math.min(i, 8) * 40}ms`;
-      frag.appendChild(card);
-    });
-
-    el.list.appendChild(frag);
-    if (el.empty) el.empty.hidden = reviews.length > 0;
-  }
-
-  async function fetchReviews(opts){
-    const silent = !!(opts && opts.silent);
-    const seq = ++loadSeq;                        // игнорируем устаревшие ответы
-    try {
-      const res = await fetch(API_URL, { headers:{ 'Accept':'application/json' } });
-      if (!res.ok) throw new Error('Не удалось загрузить отзывы');
-      const data = await res.json();
-      if (seq !== loadSeq) return;
-
-      const reviews = Array.isArray(data.reviews) ? data.reviews : [];
-      const count   = Number.isFinite(+data.count) ? +data.count : reviews.length;
-      renderSummary(data.average, count);
-      renderList(reviews);
-    } catch(e){
-      if (!silent) showToast(e.message || 'Не удалось загрузить отзывы', 'error');
-    }
-  }
-
-  /* ---------- 2. ИНТЕРАКТИВНЫЕ ЗВЁЗДЫ ----------
-     Подсветка при наведении и «все звёзды до выбранной» делает CSS (radio + :checked / :hover).
-     Здесь — хранение значения, подпись под звёздами и сброс. */
-  function setRating(value){
-    selectedRating = value;
-    const input = $('rvStar' + value);
-    if (input) input.checked = true;
-    el.rate.classList.remove('err');
-    if (el.rateHint) el.rateHint.textContent = RATING_HINTS[value] || 'Нажмите на звезду';
-  }
-
-  el.rate.addEventListener('change', e => {
-    const v = parseInt(e.target.value, 10);
-    if (v >= 1 && v <= 5){
-      setRating(v);
-      try { tg?.HapticFeedback?.selectionChanged(); } catch(err){}
-    }
-  });
-
-  // подпись при наведении (десктоп), возврат к выбранной при уходе курсора
-  el.rate.addEventListener('mouseover', e => {
-    const lab = e.target.closest('label');
-    if (lab && el.rateHint) el.rateHint.textContent = lab.title || '';
-  });
-  el.rate.addEventListener('mouseleave', () => {
-    if (el.rateHint) el.rateHint.textContent = RATING_HINTS[selectedRating] || '';
-  });
-
-  /* ---------- счётчик символов ---------- */
-  function syncCounter(){ if (el.textCount) el.textCount.textContent = el.text.value.length; }
-  el.text.addEventListener('input', () => {
-    syncCounter();
-    el.text.classList.remove('err');
-    el.error.textContent = '';
-  });
-
-  function resetForm(){
-    el.text.value = '';
-    el.text.classList.remove('err');
-    el.error.textContent = '';
-    syncCounter();
-    setRating(5);
-  }
-
-  /* ---------- 3. ОТПРАВКА ОТЗЫВА ---------- */
-  function authorNameOf(user){
-    const full = [user.first_name, user.last_name].filter(Boolean).join(' ').trim();
-    return full || user.username || 'Покупатель';
-  }
-
-  async function submitReview(){
-    el.error.textContent = '';
-    el.text.classList.remove('err');
-
-    const user = tg?.initDataUnsafe?.user || null;   // Telegram.WebApp.initDataUnsafe.user
-    if (!user || !user.id){
-      el.error.textContent = 'Откройте магазин через Telegram, чтобы оставить отзыв';
-      haptic('error');
-      return;
-    }
-
-    const text = el.text.value.trim();
-    if (!(selectedRating >= 1 && selectedRating <= 5)){
-      el.rate.classList.add('err');
-      el.error.textContent = 'Поставьте оценку от 1 до 5';
-      haptic('error');
-      return;
-    }
-    if (!text){
-      el.text.classList.add('err');
-      el.error.textContent = 'Напишите пару слов об отзыве';
-      el.text.focus();
-      haptic('error');
-      return;
-    }
-
-    const payload = {
-      telegram_id: user.id,
-      author_name: authorNameOf(user),
-      username:    user.username || '',
-      rating:      selectedRating,
-      text:        text,
-      init_data:   tg?.initData || '',     // понадобится для серверной проверки подписи Telegram
-    };
-
-    el.submit.disabled = true;
-    el.submit.textContent = 'Отправка...';
-
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok){
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Не удалось отправить отзыв');
-      }
-
-      resetForm();
-      openSheet('reviewSuccessSheet');          // закрывает форму и показывает «Спасибо»
-      haptic('success');
-    } catch(e){
-      el.error.textContent = e.message;
-      showToast(e.message, 'error');
-      haptic('error');
-    } finally {
-      el.submit.disabled = false;
-      el.submit.textContent = 'Отправить на проверку';
-    }
-  }
-  el.submit.addEventListener('click', submitReview);
-
-  /* ---------- открытие окон ---------- */
+/* ===================== ОТЗЫВЫ: ссылка на канал ===================== */
+(function(){
+  const REVIEWS_URL = 'https://t.me/+VG4k8-hxZ5wxNGUy';
   function openReviews(){
-    openSheet('reviewsSheet');
-    fetchReviews({ silent:true });     // обновляем список при каждом открытии
+    const t = window.Telegram && window.Telegram.WebApp;
+    try { if (t && t.openTelegramLink) { t.openTelegramLink(REVIEWS_URL); return; } } catch(e){}
+    window.open(REVIEWS_URL, '_blank');
   }
-
-  el.headerBtn?.addEventListener('click', openReviews);
-
-  el.menuBtn?.addEventListener('click', () => {
-    // закрываем боковое меню штатной кнопкой, затем открываем отзывы
-    if ($('sidebarMenu')?.classList.contains('active')) $('menuClose')?.click();
-    openReviews();
+  ['reviewsBtn','menuReviewsBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', openReviews);
   });
-
-  el.writeBtn?.addEventListener('click', () => {
-    setRating(selectedRating);
-    openSheet('reviewFormSheet');
-  });
-
-  /* ---------- тексты окна «Спасибо» ---------- */
-  if (el.success){
-    const t = el.success.querySelector('.success-title');
-    const s = el.success.querySelector('.success-sub');
-    if (t) t.textContent = 'Спасибо!';
-    if (s) s.textContent = SUCCESS_MSG;
-  }
-
-  /* ---------- старт ---------- */
-  setRating(5);
-  syncCounter();
-  fetchReviews({ silent:true });       // подтянуть рейтинг в бейджи при загрузке магазина
-
-  window.fetchReviews = fetchReviews;  // чтобы можно было вызвать из консоли/других модулей
 })();
 
 </script>
