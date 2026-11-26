@@ -1732,12 +1732,11 @@ def parse_delivery(raw):
 
     if not raw.get("asap", True):
         date_s = (raw.get("date") or "").strip()
-        time_s = (raw.get("time") or "").strip()
+        time_s = ""
         try:
             datetime.strptime(date_s, "%Y-%m-%d")
-            datetime.strptime(time_s, "%H:%M")
         except ValueError:
-            return None, "Укажите дату и время"
+            return None, "Укажите дату"
         d["asap"] = False
         d["date"] = date_s
         d["time"] = time_s
@@ -1761,7 +1760,7 @@ def delivery_text(d):
             day = datetime.strptime(d.get("date", ""), "%Y-%m-%d").strftime("%d.%m")
         except ValueError:
             day = d.get("date") or ""
-        when = f"🕒 {day} в {d.get('time') or ''}"
+        when = f"🕒 {day}" + (f" в {d['time']}" if d.get("time") else "")
     return line + "\n" + when
 
 
