@@ -186,6 +186,11 @@ class Promo(_DocMixin, Base):
     __tablename__ = "promos"
 
 
+class Category(_DocMixin, Base):
+    """Дерево категорий: {id, name, parent_id}. Вложенность любой глубины."""
+    __tablename__ = "categories"
+
+
 class StoredImage(Base):
     """Фото товаров хранятся прямо в базе (bytea) и отдаются по /uploads/<имя>."""
     __tablename__ = "images"
@@ -650,6 +655,95 @@ def load_promos():
 
 def save_promos(items):
     _save_docs(Promo, items)
+
+
+# --- Дерево категорий ----------------------------------------------------
+MAX_CAT_DEPTH = 6
+MAX_CAT_NAME = 60
+
+
+def load_categories():
+    return _load_docs(Category)
+
+
+def save_categories(items):
+    _save_docs(Category, items)
+
+
+def product_path(p):
+    """Полный путь товара по категориям: [категория, бренд, модель, ...]."""
+    path = p.get("path")
+    if isinstance(path, list):
+        path = [str(x).strip() for x in path if str(x).strip()]
+        if path:
+            return path
+    return [x for x in (p.get("category"), p.get("subcategory")) if x]
+
+
+def apply_path(p, path):
+    """Записывает путь в товар. category/subcategory остаются первыми двумя уровнями —
+    на них завязаны меню, поиск и заказы."""
+    path = [str(x).strip() for x in (path or []) if str(x).strip()]
+    p["path"] = path
+    p["category"] = path[0] if path else ""
+    p["subcategory"] = path[1] if len(path) > 1 else ""
+
+
+def cat_names_path(cats_by_id, cid):
+    names, seen = [], set()
+    while cid is not None and cid in cats_by_id and cid not in seen:
+        seen.add(cid)
+        names.append(cats_by_id[cid]["name"])
+        cid = cats_by_id[cid].get("parent_id")
+    return list(reversed(names))
+
+
+def cat_descendants(cats, cid):
+    out, stack = set(), [cid]
+    while stack:
+        cur = stack.pop()
+        for c in cats:
+            if c.get("parent_id") == cur and c["id"] not in out:
+                out.add(c["id"])
+                stack.append(c["id"])
+    return out
+
+
+def sync_categories_with_products():
+    """Гарантирует, что каждый путь товара есть в дереве (первый запуск и старые данные)."""
+    cats = load_categories()
+    prods = load_products()
+    changed = False
+    next_id = max([c["id"] for c in cats], default=0) + 1
+    for p in prods:
+        parent = None
+        for name in product_path(p):
+            found = next((c for c in cats if c.get("parent_id") == parent
+                          and c["name"].casefold() == name.casefold()), None)
+            if not found:
+                found = {"id": next_id, "name": name, "parent_id": parent}
+                next_id += 1
+                cats.append(found)
+                changed = True
+            parent = found["id"]
+    if changed:
+        save_categories(cats)
+    return cats
+
+
+def products_with_path(items):
+    for p in items:
+        if not (isinstance(p.get("path"), list) and p["path"]):
+            p["path"] = product_path(p)
+    return items
+
+
+def _path_startswith(path, prefix):
+    return len(path) >= len(prefix) and path[:len(prefix)] == prefix
+
+
+def _clean_cat_name(raw):
+    return re.sub(r"\s+", " ", str(raw or "")).strip()[:MAX_CAT_NAME]
 
 
 seed_from_files_once()
@@ -1433,7 +1527,7 @@ def order_loyalty_args(o):
 @app.route("/products.json", methods=["GET"])
 def products():
     # каталог берётся из базы; короткий кэш, чтобы не дёргать Neon на каждое открытие
-    resp = jsonify(load_products())
+    resp = jsonify(products_with_path(load_products()))
     resp.headers["Cache-Control"] = "public, max-age=30"
     return resp
 
@@ -1875,7 +1969,7 @@ def admin_login():
 @app.route("/api/admin/products", methods=["GET"])
 def admin_get_products():
     require_admin()
-    return jsonify(load_products())
+    return jsonify(products_with_path(load_products()))
 
 
 @app.route("/api/admin/products", methods=["POST"])
@@ -1895,8 +1989,8 @@ def admin_create_product():
     product = {
         "id": new_id,
         "name": (data.get("name") or "").strip(),
-        "category": (data.get("category") or "").strip(),
-        "subcategory": (data.get("subcategory") or "").strip(),
+        "category": "",
+        "subcategory": "",
         "price": price,
         "old_price": sanitize_old_price(data.get("old_price")),
         "badge": sanitize_badge(data.get("badge")),
@@ -1907,8 +2001,13 @@ def admin_create_product():
         "image": images[0] if images else None,
         "stock": sanitize_stock(data.get("stock")),
     }
+    raw_path = data.get("path")
+    if not isinstance(raw_path, list):
+        raw_path = [data.get("category") or "", data.get("subcategory") or ""]
+    apply_path(product, raw_path)
     items.append(product)
     save_products(items)
+    sync_categories_with_products()
     return jsonify(product), 201
 
 
@@ -1922,10 +2021,11 @@ def admin_update_product(pid):
         if p.get("id") == pid:
             if "name" in data:
                 p["name"] = (data.get("name") or "").strip()
-            if "category" in data:
-                p["category"] = (data.get("category") or "").strip()
-            if "subcategory" in data:
-                p["subcategory"] = (data.get("subcategory") or "").strip()
+            if isinstance(data.get("path"), list):
+                apply_path(p, data["path"])
+            elif "category" in data or "subcategory" in data:
+                apply_path(p, [data.get("category", p.get("category")) or "",
+                               data.get("subcategory", p.get("subcategory")) or ""])
             if "price" in data:
                 try:
                     p["price"] = int(float(data.get("price") or 0))
@@ -1954,6 +2054,7 @@ def admin_update_product(pid):
                 p["images"] = images
                 p["image"] = images[0] if images else None
             save_products(items)
+            sync_categories_with_products()
             purge_unused_images(set(old_imgs) - set(p.get("images") or []))
             return jsonify(p)
     abort(404, description="Товар не найден")
@@ -1970,6 +2071,118 @@ def admin_delete_product(pid):
     removed = next((p for p in items if p.get("id") == pid), {})
     save_products(new_items)
     purge_unused_images(removed.get("images") or [])
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/categories", methods=["GET"])
+@locked
+def admin_get_categories():
+    require_admin()
+    cats = sync_categories_with_products()
+    prods = products_with_path(load_products())
+    by_id = {c["id"]: c for c in cats}
+    out = []
+    for c in sorted(cats, key=lambda x: x["id"]):
+        path = cat_names_path(by_id, c["id"])
+        out.append({"id": c["id"], "name": c["name"], "parent_id": c.get("parent_id"),
+                    "depth": len(path) - 1,
+                    "products": sum(1 for p in prods if _path_startswith(p["path"], path))})
+    return jsonify(out)
+
+
+def _check_cat_input(cats, name, parent_id, self_id=None):
+    """Возвращает текст ошибки или None."""
+    if not name:
+        return "Введите название категории"
+    by_id = {c["id"]: c for c in cats}
+    if parent_id is not None:
+        if parent_id not in by_id:
+            return "Родительская категория не найдена"
+        if self_id is not None and (parent_id == self_id or parent_id in cat_descendants(cats, self_id)):
+            return "Нельзя переместить категорию внутрь самой себя"
+        if len(cat_names_path(by_id, parent_id)) >= MAX_CAT_DEPTH:
+            return f"Максимальная вложенность — {MAX_CAT_DEPTH} уровней"
+    for c in cats:
+        if c["id"] != self_id and c.get("parent_id") == parent_id and c["name"].casefold() == name.casefold():
+            return "На этом уровне уже есть категория с таким названием"
+    return None
+
+
+def _parse_parent(raw):
+    if raw in (None, "", 0, "0"):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
+
+
+@app.route("/api/admin/categories", methods=["POST"])
+@locked
+def admin_create_category():
+    require_admin()
+    data = request.get_json(force=True, silent=True) or {}
+    cats = sync_categories_with_products()
+    name = _clean_cat_name(data.get("name"))
+    parent_id = _parse_parent(data.get("parent_id"))
+    err = _check_cat_input(cats, name, parent_id)
+    if err:
+        return jsonify({"error": err}), 400
+    cat = {"id": max([c["id"] for c in cats], default=0) + 1, "name": name, "parent_id": parent_id}
+    cats.append(cat)
+    save_categories(cats)
+    return jsonify(cat), 201
+
+
+@app.route("/api/admin/categories/<int:cid>", methods=["PUT"])
+@locked
+def admin_update_category(cid):
+    require_admin()
+    data = request.get_json(force=True, silent=True) or {}
+    cats = sync_categories_with_products()
+    cat = next((c for c in cats if c["id"] == cid), None)
+    if not cat:
+        abort(404, description="Категория не найдена")
+    by_id = {c["id"]: c for c in cats}
+    old_path = cat_names_path(by_id, cid)
+    name = _clean_cat_name(data["name"]) if "name" in data else cat["name"]
+    parent_id = _parse_parent(data["parent_id"]) if "parent_id" in data else cat.get("parent_id")
+    err = _check_cat_input(cats, name, parent_id, self_id=cid)
+    if err:
+        return jsonify({"error": err}), 400
+    # глубина поддерева не должна выйти за лимит при переносе
+    sub_depth = max([len(cat_names_path(by_id, d)) for d in cat_descendants(cats, cid)] + [len(old_path)]) - len(old_path)
+    parent_depth = len(cat_names_path(by_id, parent_id)) if parent_id is not None else 0
+    if parent_depth + 1 + sub_depth > MAX_CAT_DEPTH:
+        return jsonify({"error": f"Максимальная вложенность — {MAX_CAT_DEPTH} уровней"}), 400
+    cat["name"], cat["parent_id"] = name, parent_id
+    new_path = cat_names_path({c["id"]: c for c in cats}, cid)
+    save_categories(cats)
+    if new_path != old_path:
+        prods = load_products()
+        for p in prods:
+            pp = product_path(p)
+            if _path_startswith(pp, old_path):
+                apply_path(p, new_path + pp[len(old_path):])
+        save_products(prods)
+    return jsonify(cat)
+
+
+@app.route("/api/admin/categories/<int:cid>", methods=["DELETE"])
+@locked
+def admin_delete_category(cid):
+    require_admin()
+    cats = sync_categories_with_products()
+    cat = next((c for c in cats if c["id"] == cid), None)
+    if not cat:
+        abort(404, description="Категория не найдена")
+    if any(c.get("parent_id") == cid for c in cats):
+        return jsonify({"error": "Сначала удалите или переместите вложенные категории"}), 400
+    path = cat_names_path({c["id"]: c for c in cats}, cid)
+    n = sum(1 for p in load_products() if _path_startswith(product_path(p), path))
+    if n:
+        return jsonify({"error": f"В категории есть товары ({n} шт.) — сначала перенесите или удалите их"}), 400
+    save_categories([c for c in cats if c["id"] != cid])
     return jsonify({"ok": True})
 
 

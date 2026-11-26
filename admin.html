@@ -125,6 +125,33 @@
   .btn-danger:active{transform:scale(.95);}
   .btn-danger:hover{background:rgba(255,92,122,.1);}
   .btn-icon-label{display:inline-flex;align-items:center;gap:6px;}
+
+  /* ---------- управление категориями ---------- */
+  select.sel{
+    width:100%;background:var(--bg);border:1.5px solid var(--line);color:var(--text);
+    padding:12px 14px;font-family:var(--font-body);font-size:16px;border-radius:8px;outline:none;
+    transition:all .2s var(--ease);margin-top:8px;appearance:auto;
+  }
+  select.sel:first-child{margin-top:0;}
+  select.sel:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-dim);}
+  .cat-hint{margin-top:8px;}
+  .cat-tree{border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg-elev);}
+  .cat-row{display:flex;align-items:center;gap:10px;padding:12px 12px;border-top:1px solid var(--line-soft);}
+  .cat-row:first-child{border-top:none;}
+  .cat-ico{flex:0 0 auto;width:20px;text-align:center;font-size:15px;line-height:1;}
+  .cat-name{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:1.25;overflow-wrap:anywhere;}
+  .cat-name small{display:block;font-weight:500;color:var(--muted);font-size:10.5px;margin-top:2px;}
+  .cat-count{flex:0 0 auto;font-size:11px;color:var(--muted);min-width:44px;text-align:right;}
+  .cat-btns{flex:0 0 auto;display:flex;gap:6px;}
+  .cat-btn{
+    width:34px;height:34px;border-radius:8px;border:1.5px solid var(--line);background:transparent;
+    color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;
+    transition:all .2s var(--ease);
+  }
+  .cat-btn:active{transform:scale(.92);}
+  .cat-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .cat-btn.del:hover{border-color:var(--danger);color:var(--danger);}
+  .cat-btn[disabled]{opacity:.35;cursor:not-allowed;}
   .row{display:flex;gap:10px;}
   .row > *{flex:1;}
   .badge-picker{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
@@ -494,6 +521,7 @@
   </div>
   <div class="tabs">
     <button class="tab-btn active" data-tab="products">Товары</button>
+    <button class="tab-btn" data-tab="categories">Категории</button>
     <button class="tab-btn" data-tab="orders">Заказы<span class="tab-badge" id="ordersBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="questions">Вопросы<span class="tab-badge" id="questionsBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="reviews">Отзывы<span class="tab-badge" id="reviewsBadge" style="display:none;"></span></button>
@@ -522,20 +550,12 @@
     <label>Название</label>
     <input type="text" id="fName" placeholder="PAFOS 20000">
 
-    <label>Подкатегория / бренд</label>
-    <input type="text" id="fSub" list="subList" placeholder="Vaporesso (необязательно)">
-    <datalist id="subList"></datalist>
+    <label>Категория <span class="muted" style="text-transform:none;letter-spacing:0;">— выбирайте уровни по порядку: категория → бренд → модель</span></label>
+    <div id="catSelects"></div>
+    <div class="muted cat-hint">Нет нужной категории или модели? Создайте её во вкладке «Категории».</div>
 
-    <div class="row">
-      <div>
-        <label>Категория</label>
-        <input type="text" id="fCategory" placeholder="Поды">
-      </div>
-      <div>
-        <label>Цена, ₽</label>
-        <input type="number" id="fPrice" placeholder="1750">
-      </div>
-    </div>
+    <label>Цена, ₽</label>
+    <input type="number" id="fPrice" placeholder="1750">
 
     <label>Старая цена, ₽ <span class="muted" style="text-transform:none;letter-spacing:0;">— необязательно, покажется зачёркнутой рядом с новой ценой</span></label>
     <input type="number" id="fOldPrice" placeholder="2100">
@@ -563,6 +583,26 @@
     <div class="modal-actions">
       <button class="btn-outline" id="cancelBtn">Отмена</button>
       <button class="btn" id="saveBtn">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="catOverlay">
+  <div class="modal">
+    <div class="modal-title" id="catModalTitle">Новая категория</div>
+    <div class="muted" id="catModalSub">можно вкладывать на любую глубину: бренд, модель и т. д.</div>
+
+    <label>Название</label>
+    <input type="text" id="cName" maxlength="60" placeholder="Aegis hero 5">
+
+    <label>Где находится</label>
+    <select class="sel" id="cParent"></select>
+
+    <div class="error" id="catError"></div>
+
+    <div class="modal-actions">
+      <button class="btn-outline" id="catCancelBtn">Отмена</button>
+      <button class="btn" id="catSaveBtn">Сохранить</button>
     </div>
   </div>
 </div>
@@ -683,6 +723,9 @@ function priceLineHTML(p){
 
 let pwd = localStorage.getItem('sh_admin_pwd') || '';
 let products = [];
+let categories = [];          // плоский список из /api/admin/categories
+let editingCatId = null;
+let formCatIds = [];          // выбранная цепочка категорий в форме товара
 let orders = [];
 let questions = [];
 let reviews = [];
@@ -759,6 +802,7 @@ async function enterApp(){
   document.getElementById('loginView').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('addBtn').style.display = 'flex';
+  try { await loadCategories(); } catch(e){ /* дерево подтянется при открытии вкладки */ }
   await loadProducts();
   await loadOrders();
   await loadQuestions();
@@ -766,7 +810,7 @@ async function enterApp(){
   await loadPromos();
 }
 
-const TAB_TITLES = { products:'Товары', orders:'Заказы', questions:'Вопросы', reviews:'Отзывы', promos:'Промокоды', loyalty:'Баллы покупателей' };
+const TAB_TITLES = { products:'Товары', categories:'Категории', orders:'Заказы', questions:'Вопросы', reviews:'Отзывы', promos:'Промокоды', loyalty:'Баллы покупателей' };
 
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.onclick = async () => {
@@ -774,10 +818,12 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     currentTab = btn.dataset.tab;
-    document.getElementById('addBtn').style.display = (currentTab === 'products' || currentTab === 'promos') ? 'flex' : 'none';
+    document.getElementById('addBtn').style.display = (currentTab === 'products' || currentTab === 'promos' || currentTab === 'categories') ? 'flex' : 'none';
     document.getElementById('viewTitle').textContent = TAB_TITLES[currentTab] || '';
     if (currentTab === 'products'){
       await loadProducts();
+    } else if (currentTab === 'categories'){
+      try { await loadCategories(); } catch(e){ showToast(e.message); }
     } else if (currentTab === 'orders'){
       await loadOrders();
       renderOrders();
@@ -830,7 +876,7 @@ function renderList(){
       <div class="thumb" style="${cover ? `background-image:url('${cover}')` : `background:${SWATCHES[p.swatch % SWATCHES.length]}`}"></div>
       <div class="card-body">
         <div class="card-title">${p.name || '(без названия)'}</div>
-        <div class="card-sub">${p.category || '—'}${p.subcategory ? ' › ' + p.subcategory : ''} · ${priceLineHTML(p)}${badgeTag}</div>
+        <div class="card-sub">${(p.path && p.path.length ? p.path : [p.category || '—', p.subcategory].filter(Boolean)).join(' › ')} · ${priceLineHTML(p)}${badgeTag}</div>
         <div class="card-sub">Вкусы / цвета: ${(p.sizes||[]).join(', ')}</div>
         <div class="card-sub">${photoCount ? `Фото: ${photoCount}` : 'Без фото'}</div>
         ${stockRowHTML(p)}
@@ -1557,9 +1603,8 @@ function openModal(id){
   document.getElementById('modalTitle').textContent = p ? 'Изменить товар' : 'Новый товар';
   document.getElementById('modalSub').textContent = p ? p.name : 'заполните карточку товара';
   document.getElementById('fName').value = p?.name || '';
-  document.getElementById('fCategory').value = p?.category || '';
-  document.getElementById('fSub').value = p?.subcategory || '';
-  document.getElementById('subList').innerHTML = [...new Set((typeof products!=='undefined'?products:[]).map(x=>x.subcategory).filter(Boolean))].map(s=>`<option value="${s}">`).join('');
+  formCatIds = p ? idsForPath(p.path && p.path.length ? p.path : [p.category, p.subcategory].filter(Boolean)) : [];
+  renderCatSelects();
   document.getElementById('fPrice').value = p?.price || '';
   document.getElementById('fOldPrice').value = p?.old_price || '';
   document.getElementById('fStock').value = (p && p.stock != null) ? p.stock : '';
@@ -1582,6 +1627,7 @@ document.getElementById('cancelBtn').onclick = closeModal;
 document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
 document.getElementById('addBtn').onclick = () => {
   if (currentTab === 'promos') openPromoModal(null);
+  else if (currentTab === 'categories') openCatModal(null, null);
   else openModal(null);
 };
 
@@ -1646,7 +1692,8 @@ document.getElementById('photoInput').addEventListener('change', async (e) => {
 
 document.getElementById('saveBtn').onclick = async () => {
   const name = document.getElementById('fName').value.trim();
-  const category = document.getElementById('fCategory').value.trim();
+  const path = formCatIds.map(id => (categories.find(c => c.id === id) || {}).name).filter(Boolean);
+  const category = path[0] || '';
   const price = document.getElementById('fPrice').value;
   const oldPrice = document.getElementById('fOldPrice').value;
   const sizes = document.getElementById('fSizes').value;
@@ -1658,7 +1705,7 @@ document.getElementById('saveBtn').onclick = async () => {
     return;
   }
 
-  const payload = { name, category, subcategory: document.getElementById('fSub').value.trim(), price, old_price: oldPrice, stock: document.getElementById('fStock').value, badge: selectedBadge, sizes, desc, swatch: selectedSwatch, images: uploadedImages };
+  const payload = { name, category, path, price, old_price: oldPrice, stock: document.getElementById('fStock').value, badge: selectedBadge, sizes, desc, swatch: selectedSwatch, images: uploadedImages };
   const btn = document.getElementById('saveBtn');
   btn.disabled = true;
   try {
@@ -1675,6 +1722,7 @@ document.getElementById('saveBtn').onclick = async () => {
       products.push(created);
       showToast('Товар добавлен');
     }
+    loadCategories().catch(() => {});
     renderList();
     updateStats();
     closeModal();
@@ -1684,6 +1732,156 @@ document.getElementById('saveBtn').onclick = async () => {
     btn.disabled = false;
   }
 };
+
+
+// --- Категории (дерево любой вложенности) -----------------------------
+function escCat(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const CAT_LEVEL_LABEL = ['категория', 'бренд / подкатегория', 'модель'];
+
+function catChildren(parentId){
+  return categories.filter(c => (c.parent_id == null ? null : c.parent_id) === (parentId == null ? null : parentId))
+                   .sort((a, b) => a.id - b.id);
+}
+// плоский обход дерева: [{cat, depth}]
+function catFlat(exceptId){
+  const out = [];
+  (function walk(pid, depth){
+    for (const c of catChildren(pid)){
+      if (c.id === exceptId) continue;      // самого себя и его потомков не показываем
+      out.push({ cat: c, depth });
+      walk(c.id, depth + 1);
+    }
+  })(null, 0);
+  return out;
+}
+function idsForPath(names){
+  const ids = []; let parent = null;
+  for (const n of names){
+    const f = catChildren(parent).find(c => c.name.toLowerCase() === String(n).toLowerCase());
+    if (!f) break;
+    ids.push(f.id); parent = f.id;
+  }
+  return ids;
+}
+
+async function loadCategories(){
+  categories = await api('/api/admin/categories');
+  if (currentTab === 'categories') renderCategories();
+  return categories;
+}
+
+function renderCategories(){
+  const list = document.getElementById('list');
+  document.getElementById('countLabel').textContent = categories.length ? `${categories.length} категорий в каталоге` : '';
+  if (!categories.length){
+    list.innerHTML = '<div class="empty">Категорий пока нет — нажмите «+», чтобы создать первую.</div>';
+    return;
+  }
+  const rows = catFlat(null).map(({cat, depth}) => {
+    const kind = depth === 0 ? '' : (depth === 1 ? 'бренд / подкатегория' : 'уровень ' + (depth + 1));
+    const hasKids = catChildren(cat.id).length > 0;
+    return `
+    <div class="cat-row" style="padding-left:${12 + depth * 22}px">
+      <span class="cat-ico">${depth === 0 ? '📦' : '▫️'}</span>
+      <div class="cat-name">${escCat(cat.name)}${kind ? `<small>${kind}</small>` : ''}</div>
+      <div class="cat-count">${cat.products} тов.</div>
+      <div class="cat-btns">
+        <button class="cat-btn" data-cat-add="${cat.id}" title="Добавить внутрь"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="cat-btn" data-cat-edit="${cat.id}" title="Изменить"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+        <button class="cat-btn del" data-cat-del="${cat.id}" title="${hasKids ? 'Сначала уберите вложенные категории' : (cat.products ? 'В категории есть товары' : 'Удалить')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg></button>
+      </div>
+    </div>`;
+  }).join('');
+  list.innerHTML = `<div class="cat-tree">${rows}</div>
+    <div class="muted" style="margin-top:12px;line-height:1.6;">«+» в строке — добавить категорию внутрь неё (например, модель внутри бренда). Товары-цвета создаются во вкладке «Товары» и привязываются к самой глубокой категории.</div>`;
+  list.querySelectorAll('[data-cat-add]').forEach(b => b.onclick = () => openCatModal(null, Number(b.dataset.catAdd)));
+  list.querySelectorAll('[data-cat-edit]').forEach(b => b.onclick = () => openCatModal(Number(b.dataset.catEdit), null));
+  list.querySelectorAll('[data-cat-del]').forEach(b => b.onclick = () => deleteCategory(Number(b.dataset.catDel)));
+}
+
+function openCatModal(id, parentId){
+  editingCatId = id;
+  const c = id ? categories.find(x => x.id === id) : null;
+  document.getElementById('catError').textContent = '';
+  document.getElementById('catModalTitle').textContent = c ? 'Изменить категорию' : 'Новая категория';
+  document.getElementById('catModalSub').textContent = c ? c.name : 'можно вкладывать на любую глубину: бренд, модель и т. д.';
+  document.getElementById('cName').value = c ? c.name : '';
+  const blocked = c ? new Set([c.id]) : new Set();
+  if (c) (function mark(pid){ catChildren(pid).forEach(k => { blocked.add(k.id); mark(k.id); }); })(c.id);
+  const cur = c ? (c.parent_id == null ? '' : String(c.parent_id)) : (parentId == null ? '' : String(parentId));
+  document.getElementById('cParent').innerHTML =
+    `<option value="">— корневая категория (верхний уровень) —</option>` +
+    catFlat(null).filter(({cat}) => !blocked.has(cat.id)).map(({cat, depth}) =>
+      `<option value="${cat.id}" ${String(cat.id) === cur ? 'selected' : ''}>${'\u00A0\u00A0'.repeat(depth)}${depth ? '↳ ' : ''}${escCat(cat.name)}</option>`
+    ).join('');
+  document.getElementById('catOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('cName').focus(), 120);
+}
+function closeCatModal(){ document.getElementById('catOverlay').classList.remove('open'); }
+document.getElementById('catCancelBtn').onclick = closeCatModal;
+document.getElementById('catOverlay').addEventListener('click', e => { if (e.target.id === 'catOverlay') closeCatModal(); });
+document.getElementById('cName').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('catSaveBtn').click(); });
+
+document.getElementById('catSaveBtn').onclick = async () => {
+  const name = document.getElementById('cName').value.trim();
+  const parent = document.getElementById('cParent').value;
+  if (!name){ document.getElementById('catError').textContent = 'Введите название'; return; }
+  const btn = document.getElementById('catSaveBtn');
+  btn.disabled = true;
+  try {
+    const body = JSON.stringify({ name, parent_id: parent ? Number(parent) : null });
+    const opts = { method: editingCatId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body };
+    await api(editingCatId ? `/api/admin/categories/${editingCatId}` : '/api/admin/categories', opts);
+    showToast(editingCatId ? 'Категория обновлена' : 'Категория добавлена');
+    closeCatModal();
+    await loadCategories();
+    if (editingCatId){ products = await api('/api/admin/products'); updateStats(); }   // переименование/перенос меняет пути товаров
+  } catch(e){
+    document.getElementById('catError').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+async function deleteCategory(id){
+  const c = categories.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`Удалить категорию «${c.name}»?`)) return;
+  try {
+    await api(`/api/admin/categories/${id}`, { method: 'DELETE' });
+    showToast('Категория удалена');
+    await loadCategories();
+  } catch(e){
+    showToast(e.message);
+  }
+}
+
+// каскад выбора в форме товара: категория → бренд → модель → ...
+function renderCatSelects(){
+  const box = document.getElementById('catSelects');
+  if (!categories.length){
+    box.innerHTML = '<div class="muted">Категорий пока нет — создайте их во вкладке «Категории».</div>';
+    return;
+  }
+  let html = '', parent = null;
+  for (let lvl = 0; lvl < 8; lvl++){
+    const kids = catChildren(parent);
+    if (!kids.length) break;
+    const cur = formCatIds[lvl] || null;
+    const ph = lvl === 0 ? '— выберите категорию —' : `— ${CAT_LEVEL_LABEL[Math.min(lvl, 2)]}: без уточнения —`;
+    html += `<select class="sel" data-lvl="${lvl}"><option value="">${ph}</option>` +
+      kids.map(k => `<option value="${k.id}" ${k.id === cur ? 'selected' : ''}>${escCat(k.name)}</option>`).join('') + `</select>`;
+    if (!cur) break;
+    parent = cur;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('select').forEach(sel => sel.onchange = () => {
+    const lvl = Number(sel.dataset.lvl);
+    formCatIds = formCatIds.slice(0, lvl);
+    if (sel.value) formCatIds.push(Number(sel.value));
+    renderCatSelects();
+  });
+}
 
 // --- Init ------------------------------------------------------------
 

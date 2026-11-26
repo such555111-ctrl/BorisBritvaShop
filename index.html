@@ -530,7 +530,7 @@
   .search-info .q{color:var(--gold);font-weight:700;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .search-info .note{display:block;font-size:11.5px;color:var(--muted-dim);margin-top:2px;}
   .search-info .price-tag{display:inline-block;background:var(--pink-dim);color:var(--accent-soft);border-radius:8px;padding:2px 8px;font-size:11.5px;font-weight:700;}
-  body.searching #filters,body.searching #subFilters{display:none;}
+  body.searching #filters,body.searching #subFilters,body.searching #deepFilters{display:none;}
   body.searching .search-info{display:block;}
   body.searching .sort-wrap{margin-left:auto;}
   mark.hl{background:rgba(220,235,255,.22);color:var(--gold);border-radius:4px;padding:0 1px;}
@@ -1281,6 +1281,7 @@
     </div>
   </div>
   <div class="subfilters" id="subFilters"></div>
+  <div id="deepFilters"></div>
   <div id="gridWrap">
     <div class="skeleton-grid" id="skeletonGrid"></div>
     <div class="grid" id="grid" style="display:none;"></div>
@@ -1705,6 +1706,7 @@ async function loadLoyalty(){
 let promoFormOpen = false;
 let activeCategory = 'Все';
 let activeSub = 'Все';
+let activeDeep = [];   // выбор на 3+ уровнях: бренд → [модель, ...]
 let currentProduct = null;
 let sortMode = 'default';
 
@@ -1813,18 +1815,70 @@ function inSub(p, sub){
 function renderSubFilters(){
   const el = document.getElementById('subFilters');
   const subs = subsFor(activeCategory);
-  if (!subs.length){ el.innerHTML = ''; return; }
+  if (!subs.length){ el.innerHTML = ''; renderDeepFilters(); return; }
   const cnt = s => PRODUCTS.filter(p => p.category === activeCategory && inSub(p, s)).length;
   const all = PRODUCTS.filter(p => p.category === activeCategory).length;
   el.innerHTML = ['Все', ...subs].map((s,i) =>
     `<button class="subchip ${s===activeSub?'active':''}" data-sub="${s}" style="animation-delay:${i*35}ms">${s==='Все'?'Все':s}<em>${s==='Все'?all:cnt(s)}</em></button>`
   ).join('');
+  renderDeepFilters();
 }
+
+/* ---------- 3+ уровни: категория → бренд → модель → ... ---------- */
+function pth(p){
+  return (Array.isArray(p.path) && p.path.length) ? p.path : [p.category, p.subcategory].filter(Boolean);
+}
+function inDeep(p){
+  if (!activeDeep.length) return true;
+  const path = pth(p);
+  return activeDeep.every((n, i) => path[i + 2] === n);
+}
+// от какого бренда строить ряды: из верхних чипов или из бокового меню
+function deepBase(){
+  if (typeof menuFilter !== 'undefined' && menuFilter && menuFilter.sub && menuFilter.brand) return [menuFilter.sub, menuFilter.brand];
+  if (activeCategory !== 'Все' && activeSub !== 'Все' && activeSub !== 'Другие') return [activeCategory, activeSub];
+  return null;
+}
+function renderDeepFilters(){
+  const box = document.getElementById('deepFilters');
+  if (!box) return;
+  const base = deepBase();
+  if (!base){ box.innerHTML = ''; return; }
+  let html = '';
+  const prefix = [...base];
+  for (let i = 0; i < 6; i++){
+    const inPrefix = PRODUCTS.filter(p => { const pp = pth(p); return prefix.every((n, k) => pp[k] === n); });
+    const names = [...new Set(inPrefix.map(p => pth(p)[prefix.length]).filter(Boolean))];
+    if (!names.length) break;
+    const cur = activeDeep[i] || 'Все';
+    const cnt = n => inPrefix.filter(p => pth(p)[prefix.length] === n).length;
+    html += `<div class="subfilters" data-deep="${i}">` +
+      ['Все', ...names].map((n, k) =>
+        `<button class="subchip ${n===cur?'active':''}" data-name="${escHtml(n)}" style="animation-delay:${k*35}ms">${n==='Все'?'Все':escHtml(n)}<em>${n==='Все'?inPrefix.length:cnt(n)}</em></button>`
+      ).join('') + `</div>`;
+    if (cur === 'Все') break;
+    prefix.push(cur);
+  }
+  box.innerHTML = html;
+}
+document.getElementById('deepFilters').addEventListener('click', (e) => {
+  const b = e.target.closest('.subchip');
+  if (!b) return;
+  const lvl = Number(b.parentElement.dataset.deep);
+  const name = b.dataset.name;
+  if ((activeDeep[lvl] || 'Все') === name) return;
+  activeDeep = activeDeep.slice(0, lvl);
+  if (name !== 'Все') activeDeep.push(name);
+  renderDeepFilters();
+  renderGrid(true);
+});
 document.getElementById('subFilters').addEventListener('click', (e) => {
   const b = e.target.closest('.subchip');
   if (!b || b.dataset.sub === activeSub) return;
   activeSub = b.dataset.sub;
+  activeDeep = [];
   e.currentTarget.querySelectorAll('.subchip').forEach(x => x.classList.toggle('active', x === b));
+  renderDeepFilters();
   renderGrid(true);
 });
 
@@ -1841,6 +1895,7 @@ filtersEl.addEventListener('click', (e) => {
   if (!btn || btn.dataset.cat === activeCategory) return;
   activeCategory = btn.dataset.cat;
   activeSub = 'Все';
+  activeDeep = [];
   filtersEl.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === btn));
   renderSubFilters();
   renderGrid(true);
@@ -1976,7 +2031,7 @@ function renderGrid(keepViewport){
     currentList = sortMode==='default' ? searchState.results : applySort(searchState.results);
   } else {
     const base = PRODUCTS.filter(menuPass);   // фильтр из бокового меню
-    const list = activeCategory==='Все' ? base : base.filter(p=>p.category===activeCategory && inSub(p, activeSub));
+    const list = (activeCategory==='Все' ? base : base.filter(p=>p.category===activeCategory && inSub(p, activeSub))).filter(inDeep);
     currentList = applySort(list);
   }
   shown = 0;
@@ -2118,7 +2173,7 @@ function openProduct(id){
   currentProduct = PRODUCTS.find(p=>p.id===id);
   const p = currentProduct;
   renderGallery(p);
-  document.getElementById('pdCat').textContent = p.category + (p.subcategory ? ' › ' + p.subcategory : '');
+  document.getElementById('pdCat').textContent = pth(p).join(' › ');
   const pdBadge = document.getElementById('pdBadge');
   if (p.badge && BADGE_LABELS[p.badge]){
     pdBadge.textContent = BADGE_LABELS[p.badge];
@@ -3069,7 +3124,7 @@ function buildSearchIndex(){
   PRODUCTS.forEach(p => {
     const forms = new Map();                       // слово -> вес
     const add = (t, w) => { if (t && (forms.get(t)||0) < w) forms.set(t, w); };
-    const base = [p.name, p.category, p.subcategory].filter(Boolean).join(' ');
+    const base = [p.name, ...new Set([p.category, p.subcategory, ...pth(p)])].filter(Boolean).join(' ');
     const baseNorm = normStr(base);
     tokenize(base).forEach(t => {
       add(t, 1);
@@ -3616,7 +3671,7 @@ function menuPass(p){ return !menuFilter || menuFilter.test(p); }
                          test: brand ? (p => p.category === subCat && inSub(p, brand)) : (p => p.category === subCat) };
     else               menuFilter = { key, sub:null,   label:def.label, test:def.test || (p => def.cats.includes(p.category)) };
 
-    activeCategory = 'Все'; activeSub = 'Все';
+    activeCategory = 'Все'; activeSub = 'Все'; activeDeep = [];
     filtersEl.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.cat === 'Все'));
     renderSubFilters();
 
